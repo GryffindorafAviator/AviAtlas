@@ -1,8 +1,19 @@
 """Tests for AviAtlas parsing domain models."""
 
+from uuid import uuid4
+
 import pytest
 from pydantic import ValidationError
-from aviatlas.parsing.models import BoundingBox, ProvenanceItem, TextSpan
+
+from aviatlas.parsing.models import (
+    Block,
+    BlockType,
+    BoundingBox,
+    DocumentMetadata,
+    ParsedDocument,
+    ProvenanceItem,
+    TextSpan,
+)
 
 
 def test_bounding_box_accepts_valid_coordinates():
@@ -138,3 +149,149 @@ def test_provenance_item_rejects_invalid_page_number(page_number):
                 y1=0.6,
             ),
         )
+
+
+def test_block_accepts_valid_content():
+    """A valid document block should be created successfully."""
+    block_id = uuid4()
+
+    block = Block(
+        id=block_id,
+        type=BlockType.PARAGRAPH,
+        content="Large language models have demonstrated strong capabilities.",
+        order=0,
+        provenance=[
+            ProvenanceItem(
+                page_number=1,
+                bbox=BoundingBox(
+                    x0=0.1,
+                    y0=0.2,
+                    x1=0.8,
+                    y1=0.4,
+                ),
+                text_span=TextSpan(start=0, end=59),
+            )
+        ],
+    )
+
+    assert block.id == block_id
+    assert block.type == BlockType.PARAGRAPH
+    assert block.order == 0
+    assert len(block.provenance) == 1
+
+
+def test_block_accepts_empty_provenance():
+    """A block may exist without physical provenance information."""
+    block = Block(
+        id=uuid4(),
+        type=BlockType.HEADING,
+        content="Introduction",
+        order=0,
+    )
+
+    assert block.provenance == []
+
+
+def test_block_rejects_negative_order():
+    """Block order must be a non-negative sequence index."""
+    with pytest.raises(ValidationError):
+        Block(
+            id=uuid4(),
+            type=BlockType.PARAGRAPH,
+            content="Example paragraph.",
+            order=-1,
+        )
+
+
+def test_block_rejects_invalid_uuid():
+    """Block IDs must be valid UUIDs."""
+    with pytest.raises(ValidationError):
+        Block(
+            id="not-a-valid-uuid",
+            type=BlockType.PARAGRAPH,
+            content="Example paragraph.",
+            order=0,
+        )
+
+
+def test_document_metadata_accepts_extracted_metadata():
+    """Extracted document metadata should be stored successfully."""
+    metadata = DocumentMetadata(
+        title="Attention Is All You Need",
+        authors=[
+            "Ashish Vaswani",
+            "Noam Shazeer",
+        ],
+        page_count=15,
+        language="en",
+    )
+
+    assert metadata.title == "Attention Is All You Need"
+    assert metadata.authors == [
+        "Ashish Vaswani",
+        "Noam Shazeer",
+    ]
+    assert metadata.page_count == 15
+    assert metadata.language == "en"
+
+
+def test_document_metadata_accepts_missing_optional_metadata():
+    """Document metadata may be unavailable from the source."""
+    metadata = DocumentMetadata()
+
+    assert metadata.title is None
+    assert metadata.authors == []
+    assert metadata.page_count is None
+    assert metadata.language is None
+
+
+@pytest.mark.parametrize("page_count", [0, -1])
+def test_document_metadata_rejects_invalid_page_count(page_count):
+    """Page count must be positive when it is available."""
+    with pytest.raises(ValidationError):
+        DocumentMetadata(page_count=page_count)
+
+
+def test_parsed_document_accepts_metadata_and_blocks():
+    """A parsed document should contain metadata and extracted blocks."""
+    block = Block(
+        id=uuid4(),
+        type=BlockType.PARAGRAPH,
+        content="Example paragraph.",
+        order=0,
+        provenance=[
+            ProvenanceItem(
+                page_number=1,
+                bbox=BoundingBox(
+                    x0=0.1,
+                    y0=0.2,
+                    x1=0.8,
+                    y1=0.4,
+                ),
+                text_span=TextSpan(start=0, end=18),
+            )
+        ],
+    )
+
+    document = ParsedDocument(
+        metadata=DocumentMetadata(
+            title="Example Document",
+            authors=["Example Author"],
+            page_count=1,
+            language="en",
+        ),
+        blocks=[block],
+    )
+
+    assert document.metadata.title == "Example Document"
+    assert len(document.blocks) == 1
+    assert document.blocks[0] == block
+
+
+def test_parsed_document_accepts_empty_blocks():
+    """A parsed document may contain no extracted blocks."""
+    document = ParsedDocument(
+        metadata=DocumentMetadata(page_count=1),
+    )
+
+    assert document.blocks == []

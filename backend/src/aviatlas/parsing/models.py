@@ -1,7 +1,7 @@
 """Domain models for AviAtlas document parsing."""
 
 from enum import Enum
-
+from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -69,3 +69,29 @@ class ProvenanceItem(BaseModel):
     page_number: int = Field(ge=1)
     bbox: BoundingBox
     text_span: TextSpan | None = None
+
+
+class Block(BaseModel):
+    """Semantic source content unit extracted from a document."""
+
+    id: UUID
+    type: BlockType
+    content: str
+    order: int = Field(ge=0)
+    provenance: list[ProvenanceItem] = Field(default_factory=list)
+
+
+class DocumentMetadata(BaseModel):
+    """Metadata extracted from a source document."""
+
+    title: str | None = None
+    authors: list[str] = Field(default_factory=list)
+    page_count: int | None = Field(default=None, ge=1)
+    language: str | None = None
+
+
+class ParsedDocument(BaseModel):
+    """Parser-independent representation of an extracted document."""
+
+    metadata: DocumentMetadata
+    blocks: list[Block] = Field(default_factory=list)
