@@ -9,6 +9,7 @@ requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2,<3",
     "docling",
+    "python-dotenv",
 ]
 
 [project.optional-dependencies]

@@ -1,10 +1,21 @@
 """Docling-based parser for AviAtlas."""
 
+import uuid
 from pathlib import Path
+from typing import Any
 
 from docling.document_converter import DocumentConverter
+from docling_core.types.doc import DocItemLabel
 
-from aviatlas.parsing.models import ParsedDocument
+from aviatlas.parsing.models import (
+    Block,
+    BlockType,
+    BoundingBox,
+    DocumentMetadata,
+    ParsedDocument,
+    ProvenanceItem,
+    TextSpan,
+)
 from aviatlas.parsing.parser import DocumentParser
 
 
@@ -12,8 +23,6 @@ class DoclingParser(DocumentParser):
     """Parser that uses Docling to convert PDFs into AviAtlas's document model."""
 
     def __init__(self):
-        # Initialize the Docling converter. 
-        # We can configure it later (e.g., specific OCR, table models) if needed.
         self._converter = DocumentConverter()
 
     def parse(self, file_path: Path) -> ParsedDocument:
@@ -21,46 +30,105 @@ class DoclingParser(DocumentParser):
         result = self._converter.convert(str(file_path))
         doc = result.document
 
-        # --- Exploration / Debugging ---
-        # Before writing the full mapping, let's inspect Docling's raw output.
-        # We want to see the structure of `prov` and the format of `bbox`.
-        print(f"\n--- Inspecting Docling output for: {file_path.name} ---")
-        print(f"Total text items found: {len(doc.texts)}")
+        # 1. Extract Metadata (Safely)
+        metadata = DocumentMetadata(
+            title=file_path.stem,
+            authors=[],
+            page_count=len(doc.pages),
+            language=None,
+        )
 
-        # Inspect the first 3 text items
-        for i, item in enumerate(doc.texts[:3]):
-            print(f"\n[Item {i}] Label: {item.label}")
-            print(f"  Text preview: '{item.text[:60]}...'")
-            
-            if item.prov:
-                print(f"  Provenance entries: {len(item.prov)}")
-                for p in item.prov:
-                    # Docling's bbox usually has attributes like l, t, r, b (left, top, right, bottom)
-                    # or x0, y0, x1, y1. Let's print the whole object to see.
-                    print(f"    -> page_no: {p.page_no}, bbox: {p.bbox}")
-            else:
-                print("  Provenance: None")
+        # 2. Extract Blocks
+        blocks = []
+        order_counter = 0
+
+        for item in doc.texts:
+            block = self._create_block(item, doc, order_counter)
+            if block:
+                blocks.append(block)
+                order_counter += 1
+
+        for item in doc.tables:
+            block = self._create_block(item, doc, order_counter)
+            if block:
+                blocks.append(block)
+                order_counter += 1
+
+        for item in doc.pictures:
+            block = self._create_block(item, doc, order_counter)
+            if block:
+                blocks.append(block)
+                order_counter += 1
+
+        # Sort blocks by order to ensure correct reading sequence
+        blocks.sort(key=lambda b: b.order)
+
+        return ParsedDocument(metadata=metadata, blocks=blocks)
+
+    def _create_block(self, item: Any, doc: Any, order: int) -> Block | None:
+        """Convert a single Docling item into an AviAtlas Block."""
         
-        print("--- End Inspection ---\n")
+        block_type = self._map_label_to_block_type(item.label)
+        if block_type is None:
+            return None
 
-        # TODO: Step 3 - Implement the actual mapping from DoclingDocument to ParsedDocument
-        raise NotImplementedError("Full mapping to ParsedDocument is not implemented yet.")
+        content = getattr(item, "text", "") or getattr(item, "get_text", lambda: "")()
+        if not content and block_type == BlockType.TABLE:
+            content = "[Table]" 
 
+        provenance = []
+        if hasattr(item, "prov") and item.prov:
+            for p in item.prov:
+                page_no = p.page_no
+                if page_no not in doc.pages:
+                    continue
+                
+                page = doc.pages[page_no]
+                page_width = page.size.width
+                page_height = page.size.height
 
-if __name__ == "__main__":
-    import sys
-    
-    if len(sys.argv) < 2:
-        print("Usage: python -m aviatlas.parsing.docling_parser <path_to_pdf>")
-        sys.exit(1)
+                l, t, r, b = p.bbox.l, p.bbox.t, p.bbox.r, p.bbox.b
+                
+                if page_width == 0 or page_height == 0:
+                    continue
 
-    pdf_path = Path(sys.argv[1])
-    if not pdf_path.exists():
-        print(f"Error: File not found at {pdf_path}")
-        sys.exit(1)
+                x0 = l / page_width
+                y0 = (page_height - t) / page_height
+                x1 = r / page_width
+                y1 = (page_height - b) / page_height
 
-    parser = DoclingParser()
-    try:
-        parser.parse(pdf_path)
-    except Exception as e:
-        print(f"An error occurred: {e}")
+                bbox = BoundingBox(x0=x0, y0=y0, x1=x1, y1=y1)
+
+                text_span = None
+                # FIX: Only create TextSpan if start is strictly less than end
+                if hasattr(p, "charspan") and p.charspan and p.charspan[0] < p.charspan[1]:
+                    text_span = TextSpan(start=p.charspan[0], end=p.charspan[1])
+
+                provenance.append(ProvenanceItem(
+                    page_number=page_no,
+                    bbox=bbox,
+                    text_span=text_span
+                ))
+
+        return Block(
+            id=uuid.uuid4(),
+            type=block_type,
+            content=content.strip(),
+            order=order,
+            provenance=provenance
+        )
+
+    def _map_label_to_block_type(self, label: DocItemLabel) -> BlockType | None:
+        """Map Docling's label to AviAtlas's BlockType enum."""
+        mapping = {
+            DocItemLabel.TITLE: BlockType.HEADING,
+            DocItemLabel.SECTION_HEADER: BlockType.HEADING,
+            DocItemLabel.TEXT: BlockType.PARAGRAPH,
+            DocItemLabel.LIST_ITEM: BlockType.LIST_ITEM,
+            DocItemLabel.TABLE: BlockType.TABLE,
+            DocItemLabel.PICTURE: BlockType.PICTURE,
+            DocItemLabel.CAPTION: BlockType.CAPTION,
+            DocItemLabel.FORMULA: BlockType.EQUATION,
+            DocItemLabel.CODE: BlockType.CODE,
+        }
+        return mapping.get(label)
