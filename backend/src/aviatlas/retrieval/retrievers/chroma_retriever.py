@@ -2,12 +2,13 @@
 
 import uuid
 from aviatlas.parsing.models import Block
-from aviatlas.retrieval.models import RetrievalChunk, SearchResult
+from aviatlas.chunking.models import Chunk
 from aviatlas.retrieval.retrievers.base import Retriever
-from aviatlas.storage.chroma_store import ChromaVectorStore # 依赖 Storage 层
+from aviatlas.retrieval.models import SearchResult
+from aviatlas.storage.chroma_store import ChromaVectorStore 
 
 class ChromaRetriever(Retriever):
-    def __init__(self, chunks: list[RetrievalChunk], blocks: list[Block], persist_directory: str = "./chroma_db"):
+    def __init__(self, chunks: list[Chunk], blocks: list[Block], persist_directory: str = "./chroma_db"):
         self._block_map = {block.id: block for block in blocks}
         
         # Initialize the ChromaDB store
@@ -17,7 +18,7 @@ class ChromaRetriever(Retriever):
         if self._store._collection.count() == 0 and chunks:
             self._ingest(chunks)
 
-    def _ingest(self, chunks: list[RetrievalChunk]):
+    def _ingest(self, chunks: list[Chunk]):
         ids = [str(c.id) for c in chunks]
         docs = [c.content for c in chunks]
         # Convert block_ids to a string and store in metadata
