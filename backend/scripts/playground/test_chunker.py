@@ -9,7 +9,7 @@ os.environ["HTTPS_PROXY"] = "http://127.0.0.1:7890"
 os.environ.pop("HF_ENDPOINT", None)
 
 from aviatlas.parsing.docling_parser import DoclingParser
-from aviatlas.retrieval.chunker import GreedyChunker
+from aviatlas.retrieval.chunkers.chunker import GreedyChunker
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

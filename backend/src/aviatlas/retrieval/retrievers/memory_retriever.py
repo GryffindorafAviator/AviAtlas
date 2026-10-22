@@ -1,9 +1,9 @@
 """In-memory keyword-based Retriever implementation."""
 
 from aviatlas.parsing.models import Block
-from aviatlas.retrieval.models import RetrievalChunk, SearchResult
+from aviatlas.retrieval.models import RetrievalChunk
 from aviatlas.retrieval.retrievers.base import Retriever
-
+from aviatlas.retrieval.models import SearchResult
 
 class InMemoryRetriever(Retriever):
     """A simple in-memory retriever using keyword matching.

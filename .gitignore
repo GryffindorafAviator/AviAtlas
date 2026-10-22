@@ -17,9 +17,13 @@ dist/
 # Local vector database (ChromaDB generated data)
 chroma_db/
 test_chroma_db/
+aviatlas_chroma_db/
 
 # Test PDF files (prevent large and copyrighted files from being committed)
 *.pdf
+
+# Uploaded user files (privacy & large binaries)
+uploads/
 
 # IDE configs (prevent committing personal editor settings)
 .vscode/
