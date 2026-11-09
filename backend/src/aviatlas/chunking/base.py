@@ -12,8 +12,8 @@ class Chunker(ABC):
 
     @abstractmethod
     def chunk(
-        self, 
-        blocks: list[Block], 
+        self,
+        blocks: list[Block],
         document_id: uuid.UUID | None = None,
         knowledge_base_id: uuid.UUID | None = None,
     ) -> list[RetrievalChunk]:

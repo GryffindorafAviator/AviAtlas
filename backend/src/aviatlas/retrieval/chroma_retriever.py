@@ -3,8 +3,8 @@
 import uuid
 from aviatlas.parsing.models import Block
 from aviatlas.chunking.models import Chunk
-from aviatlas.retrieval.retrievers.base import Retriever
-from aviatlas.retrieval.models import SearchResult
+from aviatlas.retrieval.base import Retriever
+from aviatlas.retrieval.models import RetrievalResult
 from aviatlas.storage.chroma_store import ChromaVectorStore 
 
 class ChromaRetriever(Retriever):
@@ -25,7 +25,7 @@ class ChromaRetriever(Retriever):
         metas = [{"block_ids_str": ",".join([str(bid) for bid in c.block_ids])} for c in chunks]
         self._store.add_chunks(ids, docs, metas)
 
-    def search(self, query: str, top_k: int = 3) -> list[SearchResult]:
+    def search(self, query: str, top_k: int = 3) -> list[RetrievalResult]:
         # 1. Call the underlying store to get raw results
         raw_results = self._store.search(query, top_k)
         
@@ -44,7 +44,7 @@ class ChromaRetriever(Retriever):
                 if block_id in self._block_map:
                     provenance_items.extend(self._block_map[block_id].provenance)
 
-            enriched_results.append(SearchResult(
+            enriched_results.append(RetrievalResult(
                 chunk_id=uuid.UUID(res_id),
                 content=doc,
                 score=1.0 - distance,

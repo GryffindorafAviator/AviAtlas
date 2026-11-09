@@ -2,19 +2,19 @@
 
 import uuid
 
+from aviatlas.chunking.base import Chunker
 from aviatlas.parsing.models import Block
-from aviatlas.retrieval.chunkers.base import Chunker
 from aviatlas.retrieval.models import RetrievalChunk
 
 
 class GreedyChunker(Chunker):
     """V1 Chunker: Greedily merges Blocks until a character limit is reached.
-    
+
     Design Philosophy:
-    1. ZERO Overlap: Since we merge complete Blocks (which are semantically 
+    1. ZERO Overlap: Since we merge complete Blocks (which are semantically
        intact), we do not need overlap to fix split sentences.
-    2. Never Split a Block: If a single Block exceeds max_chars, it becomes 
-       its own Chunk. This preserves the integrity of Block-level highlighting 
+    2. Never Split a Block: If a single Block exceeds max_chars, it becomes
+       its own Chunk. This preserves the integrity of Block-level highlighting
        and precise provenance.
     """
 
@@ -22,12 +22,11 @@ class GreedyChunker(Chunker):
         self.max_chars = max_chars
 
     def chunk(
-        self, 
-        blocks: list[Block], 
+        self,
+        blocks: list[Block],
         document_id: uuid.UUID | None = None,
         knowledge_base_id: uuid.UUID | None = None,
     ) -> list[RetrievalChunk]:
-        
         chunks: list[RetrievalChunk] = []
         current_content = ""
         current_block_ids: list[uuid.UUID] = []
@@ -36,8 +35,12 @@ class GreedyChunker(Chunker):
             if not block.content.strip():
                 continue
 
-            potential_content = f"{current_content}\n{block.content}".strip() if current_content else block.content
-            
+            potential_content = (
+                f"{current_content}\n{block.content}".strip()
+                if current_content
+                else block.content
+            )
+
             if len(potential_content) > self.max_chars and current_content:
                 chunks.append(
                     RetrievalChunk(
