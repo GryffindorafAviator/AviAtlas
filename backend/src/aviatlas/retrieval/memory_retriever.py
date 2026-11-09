@@ -1,9 +1,9 @@
 """In-memory keyword-based Retriever implementation."""
 
 from aviatlas.parsing.models import Block
-from aviatlas.retrieval.models import RetrievalChunk
-from aviatlas.retrieval.retrievers.base import Retriever
-from aviatlas.retrieval.models import SearchResult
+from aviatlas.chunking.models import Chunk 
+from aviatlas.retrieval.models import RetrievalResult
+from aviatlas.retrieval.base import Retriever
 
 class InMemoryRetriever(Retriever):
     """A simple in-memory retriever using keyword matching.
@@ -12,11 +12,11 @@ class InMemoryRetriever(Retriever):
     Its primary purpose is to validate the Chunk -> Block -> BBox mapping logic.
     """
 
-    def __init__(self, chunks: list[RetrievalChunk], blocks: list[Block]):
+    def __init__(self, chunks: list[Chunk], blocks: list[Block]):
         self.chunks = chunks
         self._block_map = {block.id: block for block in blocks}
 
-    def search(self, query: str, top_k: int = 3) -> list[SearchResult]:
+    def search(self, query: str, top_k: int = 3) -> list[RetrievalResult]:
         query_terms = set(query.lower().split())
         scored_chunks = []
 
@@ -40,7 +40,7 @@ class InMemoryRetriever(Retriever):
                     provenance_items.extend(original_block.provenance)
 
             results.append(
-                SearchResult(
+                RetrievalResult(
                     chunk_id=chunk.id,
                     content=chunk.content,
                     score=score,

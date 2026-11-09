@@ -10,11 +10,19 @@ dependencies = [
     "pydantic>=2,<3",
     "docling",
     "python-dotenv",
+    "fastapi",
+    "uvicorn[standard]",
+    "python-multipart",
+    "sentence-transformers",
+    "numpy",
+    "openai>=1.66",
+    "chromadb",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8,<10",
+    "httpx",
 ]
 
 [tool.setuptools.packages.find]

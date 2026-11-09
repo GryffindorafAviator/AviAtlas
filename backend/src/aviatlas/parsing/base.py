@@ -1,4 +1,4 @@
-"""Parser interface for AviAtlas document parsing."""
+"""Base interface for parsing."""
 
 from abc import ABC, abstractmethod
 from pathlib import Path

@@ -16,7 +16,7 @@ from aviatlas.parsing.models import (
     ProvenanceItem,
     TextSpan,
 )
-from aviatlas.parsing.parser import DocumentParser
+from aviatlas.parsing.base import DocumentParser
 
 
 class DoclingParser(DocumentParser):
@@ -42,26 +42,11 @@ class DoclingParser(DocumentParser):
         blocks = []
         order_counter = 0
 
-        for item in doc.texts:
+        for item, _level in doc.iterate_items():
             block = self._create_block(item, doc, order_counter)
             if block:
                 blocks.append(block)
                 order_counter += 1
-
-        for item in doc.tables:
-            block = self._create_block(item, doc, order_counter)
-            if block:
-                blocks.append(block)
-                order_counter += 1
-
-        for item in doc.pictures:
-            block = self._create_block(item, doc, order_counter)
-            if block:
-                blocks.append(block)
-                order_counter += 1
-
-        # Sort blocks by order to ensure correct reading sequence
-        blocks.sort(key=lambda b: b.order)
 
         return ParsedDocument(metadata=metadata, blocks=blocks)
 
@@ -74,7 +59,7 @@ class DoclingParser(DocumentParser):
 
         content = getattr(item, "text", "") or getattr(item, "get_text", lambda: "")()
         if not content and block_type == BlockType.TABLE:
-            content = "[Table]" 
+            content = item.export_to_markdown(doc=doc)
 
         provenance = []
         if hasattr(item, "prov") and item.prov:
