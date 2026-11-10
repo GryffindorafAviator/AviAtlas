@@ -18,6 +18,8 @@ from aviatlas.retrieval.models import RetrievalChunk
 
 DocumentStatus = Literal[
     "uploaded",
+    "queued",
+    "deleting",
     "parsing",
     "parsed",
     "indexing",
@@ -85,6 +87,9 @@ class DocumentRegistry:
         self._store[doc_id] = record
         return record
 
+    def save(self, record: DocumentRecord) -> None:
+        self._store[record.id] = record
+
     def get(self, doc_id: UUID | str) -> Optional[DocumentRecord]:
         """Retrieve a document record by UUID or string identifier."""
         if isinstance(doc_id, str):
@@ -93,6 +98,9 @@ class DocumentRegistry:
             except ValueError:
                 return None
         return self._store.get(doc_id)
+
+    def delete(self, doc_id: UUID) -> None:
+        self._store.pop(doc_id, None)
 
     def all_records(self) -> List[DocumentRecord]:
         """Return all known document records."""

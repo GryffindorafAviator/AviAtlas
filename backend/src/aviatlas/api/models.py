@@ -54,3 +54,28 @@ class AnswerResponse(BaseModel):
     answer: str
     sources: list[str] = Field(default_factory=list)
     score: float | None = None
+
+class DocumentSummary(BaseModel):
+    document_id: UUID
+    filename: str
+    title: str | None = None
+    status: str
+    uploaded_at: datetime
+    last_updated_at: datetime
+    parsed_at: datetime | None = None
+    indexed_at: datetime | None = None
+    page_count: int | None = None
+    blocks_count: int
+    chunks_count: int
+    last_error: str | None = None
+
+class DocumentListResponse(BaseModel):
+    items: list[DocumentSummary]
+    total: int
+    limit: int
+    offset: int
+
+class ProcessingResponse(BaseModel):
+    document_id: UUID
+    status: str
+    message: str = "Document queued. Poll the document detail endpoint for status."
