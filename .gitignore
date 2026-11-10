@@ -31,3 +31,8 @@ uploads/
 
 # Ignore personal/local exploration scripts
 scripts/playground/
+# Local application database and indexes
+backend/data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm

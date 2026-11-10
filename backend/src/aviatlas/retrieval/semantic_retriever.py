@@ -4,15 +4,20 @@ import os
 from aviatlas.parsing.models import Block
 from aviatlas.retrieval.models import RetrievalChunk, RetrievalResult
 
-@lru_cache(maxsize=1)
-def get_encoder():
+def embedding_model_name() -> str:
+    return os.getenv("EMBEDDING_MODEL") or "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+
+@lru_cache(maxsize=2)
+def _load_encoder(model_name: str):
     from sentence_transformers import SentenceTransformer
-    return SentenceTransformer(os.getenv(
-        "EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    ))
+    return SentenceTransformer(model_name)
+
+def get_encoder(model_name: str | None = None):
+    return _load_encoder(model_name or embedding_model_name())
 
 class SemanticRetriever:
     def __init__(self, chunks: list[RetrievalChunk], blocks: list[Block], encoder=None):
+        self.embedding_model = embedding_model_name()
         self.chunks = chunks
         self.blocks = {block.id: block for block in blocks}
         self.encoder = encoder if encoder is not None else get_encoder()
