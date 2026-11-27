@@ -32,9 +32,14 @@ class VectorIndex(Protocol):
     Vectors are derived data: they are written per document, replaced
     wholesale on reprocessing, and validated against authoritative chunk records.
     """
-    def replace(self, document_id: UUID, chunk_ids: Sequence[UUID], vectors, *, model_name: str) -> None: ...
+    def replace(self, document_id: UUID, chunk_ids: Sequence[UUID], vectors, *, model_name: str) -> None:
+        """Switch the document to these vectors; the previous index serves until then and survives a failure."""
     def delete(self, document_id: UUID) -> None: ...
     def contains(self, document_id: UUID) -> bool: ...
+    def vectors(self, document_id: UUID, chunk_ids: Sequence[UUID]) -> dict[UUID, list[float]]:
+        """Stored vectors by chunk id, so unchanged chunks need not be re-embedded."""
+    def collect_garbage(self) -> int:
+        """Remove storage left behind by interrupted replacements; return how many were removed."""
     def ensure_ready(self, document_id: UUID, chunk_ids: Sequence[UUID], *, model_name: str) -> None:
         """Raise DocumentNotReady unless stored vectors match these chunks and model."""
     def search(self, vector, top_k: int, document_ids: Collection[UUID]) -> list[VectorHit]:

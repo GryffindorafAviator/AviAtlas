@@ -22,7 +22,7 @@ class Encoder:
         return np.array([[1., 0.] for _ in texts])
 
 
-def test_services_share_index_and_invalidate_it_on_failed_reparse(tmp_path):
+def test_services_share_index_and_keep_it_when_a_reparse_fails(tmp_path):
     repository, vectors = DocumentRegistry(), InMemoryVectorIndex()
     embedder = SentenceTransformerEmbedder('test-model', Encoder())
     block = Block(id=uuid4(), type=BlockType.PARAGRAPH, order=0, content='test evidence')
@@ -40,12 +40,20 @@ def test_services_share_index_and_invalidate_it_on_failed_reparse(tmp_path):
     def fail(path): raise ValueError('bad input')
     parser.parse = fail
     with pytest.raises(DocumentProcessingFailed): docs.parse(record.id)
-    assert record.status == 'failed'
-    assert not vectors.contains(record.id)
-    with pytest.raises(DocumentNotReady): qa.ask(record.id, 'question')
+    # The previous version keeps serving, and the failure is reported on the document.
+    kept = docs.get(record.id)
+    assert kept.status == 'indexed' and 'previous version is still in use' in kept.metadata['last_error']
+    assert qa.ask(record.id, 'question').sources[0].content == 'test evidence'
     parser.parse = lambda path: parsed
     docs.parse(record.id)
     assert qa.ask(record.id, 'question').answer == 'answer [1]'
+    assert 'last_error' not in docs.get(record.id).metadata
+    # A document that never had an index still fails outright.
+    fresh = docs.upload('other.pdf', BytesIO(b'%PDF other'))
+    parser.parse = fail
+    with pytest.raises(DocumentProcessingFailed): docs.parse(fresh.id)
+    assert docs.get(fresh.id).status == 'failed' and not vectors.contains(fresh.id)
+    with pytest.raises(DocumentNotReady): qa.ask(fresh.id, 'question')
 
 
 def test_empty_retrieval_does_not_invoke_generator(tmp_path):

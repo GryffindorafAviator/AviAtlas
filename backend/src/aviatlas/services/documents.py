@@ -8,6 +8,8 @@ from typing import BinaryIO
 from threading import Lock, RLock
 from uuid import UUID
 
+from aviatlas.chunking.anchors import occurrences
+from aviatlas.retrieval.guard import index_guard
 from aviatlas.parsing.formats import UnsupportedFormat, check_content, source_format
 from aviatlas.storage.document_registry import DocumentRecord
 from aviatlas.retrieval.tokenizer import tokenize
@@ -42,8 +44,9 @@ class DocumentService:
     def __init__(self, repository: DocumentRepository, vectors: VectorIndex,
                  upload_dir: Path, parser_factory: Callable[[], Parser],
                  chunker: Chunker, embedder: Embedder | None,
-                 keywords: KeywordIndex | None = None, tokenizer=tokenize):
+                 keywords: KeywordIndex | None = None, tokenizer=tokenize, corrections=None):
         self.repository = repository
+        self.corrections = corrections
         self.vectors = vectors
         self.keywords = keywords
         self.tokenizer = tokenizer
@@ -120,7 +123,8 @@ class DocumentService:
             record.set_status("deleting")
             self.repository.save(record)
             try:
-                self._delete_indexes(document_id)
+                with index_guard.write():
+                    self._delete_indexes(document_id)
                 if record.filepath:
                     record.filepath.unlink(missing_ok=True)
                 self.repository.delete(document_id)
@@ -132,12 +136,15 @@ class DocumentService:
             lock.release()
 
     def repair_records(self) -> None:
-        """Backfill content hashes for deduplication and drop titles that were
-        only the generated storage name."""
+        """Backfill content hashes for deduplication, drop titles that were only the
+        generated storage name, and drop chunks of documents that have no index."""
         for record in self.repository.all_records():
             changed = False
             if record.title == str(record.id):
                 record.title, changed = None, True
+            if record.status in {"failed", "uploaded"} and record.chunks:
+                # Chunks of a document without an index (left by older versions) must not look searchable.
+                record.chunks, changed = [], True
             if "sha256" not in record.metadata and record.filepath and record.filepath.is_file():
                 try:
                     record.metadata["sha256"], changed = _hash_file(record.filepath), True
@@ -164,25 +171,34 @@ class DocumentService:
             return 0
         rebuilt = 0
         for record in self.repository.all_records():
-            if record.status != "indexed" or not record.chunks:
+            if not record.searchable:
                 continue
             try:
-                self.keywords.ensure_ready(record.id, [c.id for c in record.chunks])
+                self.keywords.ensure_ready(record.id, [c.id for c in record.indexed_chunks])
             except DocumentNotReady:
                 with self._lock_for(record.id):
-                    self._write_keywords(record.id, record.chunks)
+                    self._write_keywords(record.id, record.indexed_chunks)
                 rebuilt += 1
         return rebuilt
 
     def recover_interrupted(self) -> None:
         # One server process only: any in-flight records belong to the previous run.
         for record in self.repository.all_records():
-            if record.status in {"queued", "parsing", "indexing"} or (
+            if record.status in {"queued", "parsing", "indexing"} and record.indexed_chunks and self._indexes_ready(record):
+                # An interrupted reprocess never touched the serving version.
+                record.set_status("indexed")
+                record.update_metadata(last_error="Reprocessing was interrupted; the previous version is still in use.")
+                self.repository.save(record)
+            elif record.status in {"queued", "parsing", "indexing"} or (
                     record.status == "uploaded" and record.filepath is None):
                 self._delete_indexes(record.id)
                 record.set_status("failed")
+                record.chunks = []
                 record.update_metadata(last_error="Processing was interrupted. Upload or parse again.")
                 self.repository.save(record)
+        removed = self.vectors.collect_garbage()
+        if removed:
+            logger.info("Removed %d vector collections left by interrupted rebuilds", removed)
 
     def resume_deletions(self) -> None:
         for record in self.repository.all_records():
@@ -245,41 +261,92 @@ class DocumentService:
             raise DocumentNotFound("Document not found.")
         if not record.filepath or not record.filepath.exists():
             raise DocumentNotFound("Uploaded file is missing from disk.")
+        # A document that is already searchable keeps serving its current index and chunks
+        # until the new version is complete (System Design §12.4).
+        previous = bool(record.indexed_chunks) and self._indexes_ready(record)
         record.set_status("parsing")
         self.repository.save(record)
+        writing = False
         try:
-            self._delete_indexes(document_id)
+            if not previous:
+                self._delete_indexes(document_id)
             parsed = self.parser_factory().parse(record.filepath)
             chunks = self.chunker.chunk(parsed.blocks, document_id=document_id, knowledge_base_id=None)
             if not chunks:
                 raise ValueError("No searchable text was extracted from the document.")
+            attachments = self._apply_corrections(document_id, chunks, parsed.blocks)
             record.set_status("indexing")
             self.repository.save(record)
-            vectors = self.embedder.encode([chunk.resolved_text for chunk in chunks])
-            record.blocks = parsed.blocks
-            record.chunks = chunks
-            record.title = parsed.metadata.title
-            metadata = parsed.metadata.model_dump()
-            # Formats detected at upload win over parser defaults; a missing field keeps the stored value.
-            metadata["source_format"] = record.metadata.get("source_format") or metadata["source_format"] or "pdf"
-            record.update_metadata(**metadata, chunker=getattr(self.chunker, "version", None))
-            record.parsed_at = datetime.now(timezone.utc)
-            self.vectors.replace(document_id, [chunk.id for chunk in chunks], vectors,
-                                 model_name=self.embedder.model_name)
-            self._write_keywords(document_id, chunks)
-            record.set_status("indexed")
-            record.metadata.pop("last_error", None)
-            self.repository.save(record)
+            included = [c for c in chunks if not c.excluded]
+            vectors = self.embedder.encode([c.resolved_text for c in included])
+            writing = True
+            with index_guard.write():  # searches wait for the switch instead of seeing half of it
+                self.vectors.replace(document_id, [c.id for c in included], vectors, model_name=self.embedder.model_name)
+                self._write_keywords(document_id, included)
+                record.blocks = parsed.blocks
+                record.chunks = chunks
+                record.title = parsed.metadata.title
+                metadata = parsed.metadata.model_dump()
+                # Formats detected at upload win over parser defaults; a missing field keeps the stored value.
+                metadata["source_format"] = record.metadata.get("source_format") or metadata["source_format"] or "pdf"
+                record.update_metadata(**metadata, chunker=getattr(self.chunker, "version", None))
+                record.parsed_at = datetime.now(timezone.utc)
+                record.set_status("indexed")
+                record.metadata.pop("last_error", None)
+                self.repository.save(record)
+            if self.corrections is not None:
+                self.corrections.set_attachments(attachments)
         except Exception as exc:
-            record.set_status("failed")
-            record.update_metadata(last_error=f"{type(exc).__name__}: {exc}"[:500])
-            self.repository.save(record)
-            try:
-                self._delete_indexes(document_id)
-            except Exception:
-                logger.exception("Failed to clean up index: %s", document_id)
             logger.exception("Document processing failed: %s", document_id)
+            if previous and not writing:
+                # Parsing, chunking, or embedding failed: nothing was written; keep the old version.
+                record.set_status("indexed")
+                record.update_metadata(last_error=f"Reprocessing failed ({type(exc).__name__}: {exc})"[:400]
+                                       + "; the previous version is still in use.")
+                self.repository.save(record)
+            else:
+                record.set_status("failed")
+                record.chunks = []
+                record.update_metadata(last_error=f"{type(exc).__name__}: {exc}"[:500])
+                self.repository.save(record)
+                try:
+                    self._delete_indexes(document_id)
+                except Exception:
+                    logger.exception("Failed to clean up index: %s", document_id)
             raise DocumentProcessingFailed(
                 "Document processing failed. Check server logs and retry parsing."
             ) from exc
         return ParseResult(document_id, record.status, len(parsed.blocks), len(chunks))
+
+    def _indexes_ready(self, record: DocumentRecord) -> bool:
+        ids = [c.id for c in record.indexed_chunks]
+        try:
+            self.vectors.ensure_ready(record.id, ids, model_name=self.embedder.model_name)
+            if self.keywords is not None:
+                self.keywords.ensure_ready(record.id, ids)
+        except DocumentNotReady:
+            return False
+        return True
+
+    def _apply_corrections(self, document_id: UUID, chunks, blocks) -> dict:
+        """Reapply stored corrections to freshly generated chunks; return correction -> chunk id (None: orphaned)."""
+        if self.corrections is None:
+            return {}
+        by_anchor = dict(zip(occurrences([c.content for c in chunks]), chunks))
+        attachments = {}
+        for correction in self.corrections.for_document(document_id):
+            chunk = by_anchor.get((correction.anchor, correction.occurrence))
+            if chunk is not None:
+                chunk.edited_text, chunk.excluded, chunk.correction_id = correction.text, correction.excluded, correction.correction_id
+            attachments[correction.correction_id] = chunk.id if chunk is not None else None
+        return attachments
+
+    def reindex(self, record: DocumentRecord, changed: set[UUID]) -> None:
+        """Rewrite both indexes from the record's current chunks, re-embedding only `changed` chunks."""
+        included = record.indexed_chunks
+        reuse = self.vectors.vectors(record.id, [c.id for c in included if c.id not in changed])
+        missing = [c for c in included if c.id not in reuse]
+        fresh = dict(zip((c.id for c in missing), self.embedder.encode([c.resolved_text for c in missing]))) if missing else {}
+        vectors = [reuse[c.id] if c.id in reuse else fresh[c.id] for c in included]
+        self.vectors.replace(record.id, [c.id for c in included], vectors, model_name=self.embedder.model_name)
+        self._write_keywords(record.id, included)

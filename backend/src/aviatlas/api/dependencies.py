@@ -15,6 +15,9 @@ from aviatlas.services.qa import QuestionAnsweringService, SearchService
 from aviatlas.services.scope import ScopeResolver
 from aviatlas.services.collections import CollectionService
 from aviatlas.services.conversations import ConversationService
+from aviatlas.services.corrections import CorrectionService
+from aviatlas.storage.correction_repository import SQLiteCorrectionRepository
+from aviatlas.storage.qa_log_repository import SQLiteQALogRepository
 from aviatlas.storage.conversation_repository import SQLiteConversationRepository
 from aviatlas.storage.collection_repository import SQLiteCollectionRepository
 from aviatlas.storage.sqlite_repository import SQLiteDocumentRepository
@@ -37,6 +40,8 @@ class Services:
     collections: CollectionService | None = None
     search: SearchService | None = None
     conversations: ConversationService | None = None
+    corrections: CorrectionService | None = None
+    logs: SQLiteQALogRepository | None = None
 
 _initialization_lock = Lock()
 
@@ -55,13 +60,17 @@ def _build_services() -> Services:
     collections = CollectionService(SQLiteCollectionRepository(repository))
     resolver = ScopeResolver(repository, collections)
     answerer = AnswerGenerator()
+    corrections, logs = SQLiteCorrectionRepository(repository), SQLiteQALogRepository(repository)
+    documents = DocumentService(repository, vectors, data_dir / "uploads", create_parser,
+                                StructuredChunker(max_chars=1000), embedder, keywords, corrections=corrections)
     services = Services(
-        DocumentService(repository, vectors, data_dir / "uploads", create_parser,
-                        StructuredChunker(max_chars=1000), embedder, keywords),
-        QuestionAnsweringService(repository, retriever, answerer, resolver),
+        documents,
+        QuestionAnsweringService(repository, retriever, answerer, resolver, logs=logs),
         collections,
         SearchService(retriever, resolver),
-        ConversationService(SQLiteConversationRepository(repository), retriever, answerer, resolver),
+        ConversationService(SQLiteConversationRepository(repository), retriever, answerer, resolver, logs=logs),
+        CorrectionService(documents, corrections),
+        logs,
     )
 
     services.documents.repair_records()

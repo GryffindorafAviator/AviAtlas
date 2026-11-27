@@ -102,3 +102,29 @@ def test_unindexed_document_in_scope_is_reported(setup):
     with pytest.raises(DocumentNotReady):
         retriever.search('plant', RetrievalScope.of([ready.id, pending.id]))
     assert retriever.search('plant', RetrievalScope.of([])) == []
+
+
+def test_replace_switches_atomically_and_keeps_the_old_index_on_failure(setup):
+    _, vectors, retriever, index_document = setup
+    record = index_document(['plant cells', 'rock layers'], page=1)
+    ids = [c.id for c in record.chunks]
+    stored = vectors.vectors(record.id, ids)
+    assert set(stored) == set(ids) and np.allclose(stored[ids[0]], [1., 0., 0.])
+    with pytest.raises(ValueError):
+        vectors.replace(record.id, ids, [[1., 0., 0.]], model_name='test-model')  # wrong count
+    vectors.ensure_ready(record.id, ids, model_name='test-model')
+    assert retriever.search('plant', RetrievalScope.for_document(record.id), top_k=1)[0].content == 'plant cells'
+    new_ids = [uuid4()]
+    vectors.replace(record.id, new_ids, [[0., 0., 1.]], model_name='test-model')
+    vectors.ensure_ready(record.id, new_ids, model_name='test-model')
+    assert vectors.vectors(record.id, ids) == {} and vectors.collect_garbage() == 0
+
+
+def test_collections_left_by_an_interrupted_rebuild_are_collected(tmp_path):
+    repository = SQLiteDocumentRepository(tmp_path / 'documents.sqlite3')
+    index = ChromaVectorIndex(repository, tmp_path / 'chroma')
+    document = uuid4()
+    index.replace(document, [uuid4()], [[1., 0., 0.]], model_name='m')
+    index.client.create_collection(f'doc-{document.hex}-{uuid4().hex}', embedding_function=None)  # orphan
+    assert index.collect_garbage() == 1
+    assert [c.name for c in index.client.list_collections()] == [index._manifest(document)[0]]

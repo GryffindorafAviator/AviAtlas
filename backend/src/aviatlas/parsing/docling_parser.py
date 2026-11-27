@@ -85,7 +85,9 @@ class DoclingParser(DocumentParser):
             from docling.document_converter import DocumentConverter, PdfFormatOption
             options = PdfPipelineOptions()
             options.do_ocr = layer != "native"
-            options.ocr_options.force_full_page_ocr = layer == "scanned"
+            if layer == "scanned":
+                from docling.datamodel.pipeline_options import OcrMode
+                options.ocr_options.mode = OcrMode.FULL_PAGE
             self._converters[layer] = DocumentConverter(
                 format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)})
         return self._converters[layer]

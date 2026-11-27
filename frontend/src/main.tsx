@@ -4,9 +4,10 @@ import { Assistant } from './Assistant';
 import { CollectionDialog } from './CollectionDialog';
 import { Reader } from './Reader';
 import { InspectorPanel } from './InspectorPanel';
+import { LogsPanel } from './LogsPanel';
 import { SearchPanel } from './SearchPanel';
-type Tab = 'documents' | 'search' | 'ask' | 'inspect';
-const tabs: [Tab, string][] = [['documents', '文档'], ['search', '搜索'], ['ask', '问答'], ['inspect', '检索调试']];
+type Tab = 'documents' | 'search' | 'ask' | 'inspect' | 'logs';
+const tabs: [Tab, string][] = [['documents', '文档'], ['search', '搜索'], ['ask', '问答'], ['inspect', '检索调试'], ['logs', '问答日志']];
 const statusNames: Record<string, string> = { uploaded: '待处理', queued: '排队中', parsing: '解析中', indexing: '建立索引', indexed: '可提问', failed: '处理失败', deleting: '删除中' };
 const busy = (status: string) => ['queued', 'parsing', 'indexing', 'deleting'].includes(status);
 export function App() {
@@ -133,6 +134,7 @@ export function App() {
       {!current && <div className="library-tabs" role="tablist" aria-label="图书馆视图">{tabs.map(([id, label]) => <button key={id} role="tab" id={`tab-${id}`} aria-selected={tab === id} className={`btn ${tab === id ? 'is-active' : ''}`} onClick={() => setTab(id)}>{label}</button>)}<span className="tab-scope">范围：{scopeName}</span></div>}
       {current ? <Reader key={current.document_id} doc={current} initialPage={openPage} initialBlock={openBlock}/>
       : tab === 'search' ? <SearchPanel key={collectionId} scope={scope} scopeName={scopeName} onOpen={(s, p) => void openSource(s, p)}/>
+      : tab === 'logs' ? <LogsPanel onOpen={(s, p) => void openSource(s, p)}/>
       : tab === 'inspect' ? <InspectorPanel key={collectionId} scope={scope} scopeName={scopeName} onOpen={(s, p) => void openSource(s, p)}/>
       : tab === 'ask' ? <div className="library-assistant"><Assistant key={collectionId} scope={scope}
           title={`// 向${activeCollection ? '分组' : '图书馆'}提问`} subtitle={`跨「${scopeName}」中的文档检索并回答。`}
@@ -142,8 +144,8 @@ export function App() {
       : <>
         <div className="library-toolbar"><span>{activeCollection?.name || '全部文档'} / {total}</span>{activeCollection ? <div className="collection-actions"><button className="btn" disabled={collectionBusy} onClick={() => void modifyCollection()}>重命名</button><button className="btn btn-warn" disabled={collectionBusy} onClick={() => void modifyCollection(true)}>删除分组</button></div> : <span>按上传时间排序</span>}</div>
         {loading && !docs.length ? <div className="panel-inset empty">正在加载图书馆…</div> : !docs.length && !error ? <div className="panel-inset empty"><h3>{activeCollection ? "分组中还没有文档" : "上传第一份文档"}</h3><p>{activeCollection ? "上传文档，或在全部文档中通过“管理分组”加入已有文档。" : "上传一份文档，打开阅读，向文档提问。"}</p><button className="btn btn-ok" disabled={uploading} onClick={() => input.current?.click()}>上传文档</button></div> : <div className="document-list">{docs.map(doc => <article className="panel-inset document-card" key={doc.document_id}>
-          <div className="document-info"><h3>{doc.filename}</h3><div className="document-groups">{collections.filter(c => doc.collection_ids?.includes(c.collection_id)).map(c => <span key={c.collection_id}>{c.name}</span>)}</div><span className="card-meta"><span className="format-tag">{formatNames[doc.source_format ?? 'pdf']}</span>{doc.ocr_page_count ? <span className="format-tag" title="这些页面没有文字层，内容由 OCR 识别，可能有错字">OCR {doc.ocr_page_count} 页</span> : null}{doc.page_count ? `${doc.page_count} 页 · ` : ''}{new Date(doc.uploaded_at).toLocaleDateString('zh-CN')}</span>{doc.needs_reprocess && <span className="card-meta reprocess-hint">用旧版分块处理，重新处理后表格与公式分块更准确。</span>}</div>
-          <span className={`status status-${doc.status}`}><i className={`led ${doc.status === 'indexed' ? 'ok' : doc.status === 'failed' ? 'warn' : ''}`} aria-hidden="true"/>{statusNames[doc.status] || doc.status}</span>
+          <div className="document-info"><h3>{doc.filename}</h3><div className="document-groups">{collections.filter(c => doc.collection_ids?.includes(c.collection_id)).map(c => <span key={c.collection_id}>{c.name}</span>)}</div><span className="card-meta"><span className="format-tag">{formatNames[doc.source_format ?? 'pdf']}</span>{doc.ocr_page_count ? <span className="format-tag" title="这些页面没有文字层，内容由 OCR 识别，可能有错字">OCR {doc.ocr_page_count} 页</span> : null}{doc.page_count ? `${doc.page_count} 页 · ` : ''}{new Date(doc.uploaded_at).toLocaleDateString('zh-CN')}</span>{doc.needs_reprocess && <span className="card-meta reprocess-hint">用旧版分块处理，重新处理后表格与公式分块更准确。</span>}{(!!doc.edited_chunks || !!doc.excluded_chunks) && <span className="card-meta reprocess-hint">已编辑 {doc.edited_chunks ?? 0} 块 · 已排除 {doc.excluded_chunks ?? 0} 块</span>}{!!doc.pending_corrections && <span className="card-meta reprocess-hint pending">{doc.pending_corrections} 条更正待处理（打开文档，在“分块”中查看）</span>}</div>
+          <span className={`status status-${doc.status}`}><i className={`led ${doc.status === 'indexed' ? 'ok' : doc.status === 'failed' ? 'warn' : ''}`} aria-hidden="true"/>{busy(doc.status) && doc.status !== 'deleting' && doc.chunks_count > 0 ? `重新处理中 · 仍可检索` : statusNames[doc.status] || doc.status}</span>
           <div className="document-actions"><button className="btn" onClick={() => setMembershipDoc(doc)}>管理分组</button><button className="btn" onClick={() => openDocument(doc.document_id)}>打开</button>{(['failed','uploaded'].includes(doc.status) || doc.needs_reprocess) && <button className="btn btn-ok" disabled={working === doc.document_id} onClick={() => void action(doc)}>{doc.status === 'failed' ? '重试' : doc.needs_reprocess ? '重新处理' : '开始处理'}</button>}<button className="btn btn-warn" disabled={busy(doc.status) || working === doc.document_id} onClick={() => void action(doc, true)}>删除</button></div>
           {doc.last_error && <p className="card-error">{doc.last_error}</p>}
         </article>)}</div>}

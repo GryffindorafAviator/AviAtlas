@@ -18,6 +18,16 @@ class InMemoryVectorIndex:
             raise ValueError("Each chunk needs exactly one vector.")
         self._documents[document_id] = (model_name, list(chunk_ids), vectors)
 
+    def vectors(self, document_id: UUID, chunk_ids: Sequence[UUID]) -> dict[UUID, list[float]]:
+        entry = self._documents.get(document_id)
+        if entry is None:
+            return {}
+        stored = dict(zip(entry[1], entry[2]))
+        return {c: list(stored[c]) for c in chunk_ids if c in stored}
+
+    def collect_garbage(self) -> int:
+        return 0
+
     def delete(self, document_id: UUID) -> None:
         self._documents.pop(document_id, None)
 

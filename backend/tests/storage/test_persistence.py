@@ -85,9 +85,11 @@ def test_reparse_replaces_index_and_failure_survives_restart(tmp_path, monkeypat
     parser.parse = fail
     with pytest.raises(DocumentProcessingFailed): docs.parse(record.id)
     repo = SQLiteDocumentRepository(tmp_path / 'documents.sqlite3')
-    assert repo.get(record.id).status == 'failed'
-    assert not ChromaVectorIndex(repo, tmp_path / 'chroma').contains(record.id)
-    assert len(docs.vectors.client.list_collections()) == 0
+    assert repo.get(record.id).status == 'indexed'
+    assert 'previous version is still in use' in repo.get(record.id).metadata['last_error']
+    assert ChromaVectorIndex(repo, tmp_path / 'chroma').contains(record.id)
+    assert len(docs.vectors.client.list_collections()) == 1
+    assert qa.ask(record.id, 'rock').sources[0].content == 'new rock evidence'
 
 
 def test_changed_model_and_missing_collection_require_reparse(tmp_path, monkeypatch):
@@ -103,15 +105,33 @@ def test_changed_model_and_missing_collection_require_reparse(tmp_path, monkeypa
     with pytest.raises(DocumentNotReady, match='missing'): qa.ask(record.id, 'plant')
 
 
-def test_interrupted_indexing_is_failed_on_recovery(tmp_path, monkeypatch):
-    docs, _, _ = setup_services(tmp_path, monkeypatch)
+def test_interrupted_reprocess_keeps_the_previous_version(tmp_path, monkeypatch):
+    docs, qa, _ = setup_services(tmp_path, monkeypatch)
     record = docs.upload('first.pdf', BytesIO(b'plant evidence'))
     docs.parse(record.id)
     saved = docs.repository.get(record.id)
     saved.set_status('indexing')
     docs.repository.save(saved)
+    # A crash mid-rebuild leaves a half-written collection behind.
+    docs.vectors.client.create_collection(f'doc-{record.id.hex}-orphan', embedding_function=None)
     docs.recover_interrupted()
-    assert docs.repository.get(record.id).status == 'failed'
+    recovered = docs.repository.get(record.id)
+    assert recovered.status == 'indexed' and 'interrupted' in recovered.metadata['last_error']
+    assert qa.ask(record.id, 'plant').sources[0].content == 'plant evidence'
+    assert len(docs.vectors.client.list_collections()) == 1
+
+
+def test_interrupted_first_processing_is_failed_on_recovery(tmp_path, monkeypatch):
+    docs, _, _ = setup_services(tmp_path, monkeypatch)
+    record = docs.upload('first.pdf', BytesIO(b'plant evidence'))
+    docs.parse(record.id)
+    docs.vectors.delete(record.id)  # never finished indexing
+    saved = docs.repository.get(record.id)
+    saved.set_status('indexing')
+    docs.repository.save(saved)
+    docs.recover_interrupted()
+    failed = docs.repository.get(record.id)
+    assert failed.status == 'failed' and failed.chunks == []
     assert not docs.vectors.contains(record.id)
 
 

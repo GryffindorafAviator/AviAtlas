@@ -52,6 +52,13 @@ class AnswerGenerator:
             raise AnswerConfigurationError("Set OPENROUTER_API_KEY, or OPENAI_API_KEY and OPENAI_MODEL, in backend/.env.")
         return key, model, os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
 
+    def model_label(self) -> str | None:
+        """The configured model, for logs; None when no provider is configured."""
+        try:
+            return self._provider()[1]
+        except AnswerConfigurationError:
+            return None
+
     @staticmethod
     def _request(question: str, sources: list[RetrievalResult], mode: AnswerMode,
                  selection: Selection | None, history: Sequence[dict] | None) -> tuple[str, str]:

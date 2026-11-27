@@ -3,7 +3,7 @@
 | Field            | Description                  |
 | ---------------- | ---------------------------- |
 | Product          | AviAtlas                     |
-| Version          | 0.6                          |
+| Version          | 0.7                          |
 | Status           | Draft                        |
 | Document Type    | System Design Document       |
 | Last Updated     | 2026-11-27                   |
@@ -1625,6 +1625,8 @@ The following decisions require further investigation and detailed design.
 | Provenance Design             | docs/design/provenance.md           |
 | Verification Design           | docs/design/verification.md         |
 | Conversations                 | docs/design/conversations.md (M4)   |
+| Corrections and Rebuilding    | docs/design/corrections.md (M6)     |
+| Q&A Logs                      | docs/design/qa-logs.md (M6)         |
 | Agent Architecture            | docs/design/agent.md                |
 | API Specification             | docs/api/                           |
 | Evaluation Plan               | docs/evaluation/evaluation-plan.md  |
@@ -1640,3 +1642,4 @@ The following decisions require further investigation and detailed design.
 | 0.4     | 2026-11-27 | Recorded implemented embedding model and SQLite; linked retrieval and answering implementation docs and ADR 0003. |
 | 0.5     | 2026-11-27 | LangGraph and SSE in use for conversation turns; linked conversations implementation doc; ADR 0002 checkpointer amendment. |
 | 0.6     | 2026-11-27 | DOCX/Markdown/TXT, OCR routing, structure-aware chunking; linked parsing and chunking implementation docs. |
+| 0.7     | 2026-11-27 | Chunk corrections, index rebuilding that keeps the serving version, Q&A logs; linked implementation docs. |

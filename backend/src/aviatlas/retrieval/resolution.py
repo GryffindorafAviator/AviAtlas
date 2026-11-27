@@ -17,11 +17,11 @@ class ScopedRecords:
         self.records = {}
         for document_id in scope.document_ids:
             record = repository.get(document_id)
-            if record is None or record.status != "indexed" or not record.chunks:
+            if record is None or not record.searchable:
                 raise DocumentNotReady("Document is not ready. Please parse it first.")
-            ensure_ready(document_id, [c.id for c in record.chunks])
+            ensure_ready(document_id, [c.id for c in record.indexed_chunks])
             self.records[document_id] = record
-        self.chunks = {c.id: c for r in self.records.values() for c in r.chunks}
+        self.chunks = {c.id: c for r in self.records.values() for c in r.indexed_chunks}
         self.blocks = {b.id: b for r in self.records.values() for b in r.blocks}
 
     def result(self, query: str, hit: ScoredHit, *, rank: int, method: str,

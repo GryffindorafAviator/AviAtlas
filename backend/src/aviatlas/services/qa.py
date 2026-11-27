@@ -1,13 +1,15 @@
 """Retrieve evidence and generate source-aware answers independently of HTTP."""
 import logging
 from datetime import datetime, timezone
+from time import perf_counter
 from uuid import UUID
 from aviatlas.answering.generator import AnswerConfigurationError, AnswerGenerationError
 from aviatlas.answering.segments import invalid_citations, join_segments, split_segments
 from aviatlas.retrieval.hybrid import METHODS, RetrievalRun
 from aviatlas.retrieval.models import RetrievalResult
+from aviatlas.storage.qa_log_repository import QALog, source_reference
 from aviatlas.services.errors import (
-    InvalidInput, DocumentNotFound, DocumentNotReady, RetrievalUnavailable,
+    ServiceError, InvalidInput, DocumentNotFound, DocumentNotReady, RetrievalUnavailable,
     GenerationUnavailable, GenerationFailed,
 )
 from aviatlas.services.models import (
@@ -21,6 +23,34 @@ logger = logging.getLogger(__name__)
 MAX_SELECTION_CHARS = 2000
 NO_EVIDENCE = "文档中没有可用于回答此问题的内容。"
 NO_DOCUMENTS = "当前范围内没有可检索的文档。请先上传并处理文档。"
+
+
+def elapsed(start: float) -> float:
+    return round((perf_counter() - start) * 1000, 1)
+
+
+def model_label(answerer) -> str | None:
+    label = getattr(answerer, "model_label", None)
+    return label() if callable(label) else None
+
+
+def new_log(kind: str, question: str, mode: str, search_query: str, scope: ScopeRequest,
+            resolved: ResolvedScope, answerer) -> QALog:
+    return QALog(kind=kind, question=question, mode=mode, status="failed", search_query=search_query,
+                 scope={"document_ids": [str(d) for d in scope.document_ids] if scope.document_ids else None,
+                        "collection_id": str(scope.collection_id) if scope.collection_id else None},
+                 document_ids=[str(d) for d in resolved.document_ids],
+                 skipped_document_ids=[str(d) for d in resolved.skipped_document_ids], model=model_label(answerer))
+
+
+def record_log(logs, log: QALog) -> None:
+    """Logging must never fail an answer."""
+    if logs is None:
+        return
+    try:
+        logs.add(log)
+    except Exception:
+        logger.exception("Could not write Q&A log")
 
 
 def validate_question(question: str, mode: str, selection: Selection | None,
@@ -101,8 +131,9 @@ class SearchService:
 
 class QuestionAnsweringService:
     def __init__(self, repository: DocumentRepository, retriever: Retriever, answerer: Answerer,
-                 resolver: ScopeResolver | None = None):
+                 resolver: ScopeResolver | None = None, logs=None):
         self.repository = repository
+        self.logs = logs
         self.retriever = retriever
         self.answerer = answerer
         self.resolver = resolver or ScopeResolver(repository)
@@ -123,24 +154,40 @@ class QuestionAnsweringService:
         single = scope.document_ids[0] if scope.document_ids and len(scope.document_ids) == 1 else None
         # The selected passage sharpens retrieval toward the part being read.
         retrieval_query = f"{query}\n{selection.text}" if selection else query
-        sources = retrieve_evidence(self.retriever, self.resolver, resolved, retrieval_query, top_k)
+        log = new_log("ask", query, mode, retrieval_query, scope, resolved, self.answerer)
+        started = perf_counter()
+        sources: list[RetrievalResult] = []
 
         def result(segments: list[AnswerSegment], invalid: list[int] | None = None) -> AnswerResult:
+            log.answer, log.segments, log.invalid_citations = join_segments(segments), [s.__dict__ for s in segments], invalid or []
             return AnswerResult(single, question, join_segments(segments), sources,
                                 datetime.now(timezone.utc), mode, segments, invalid or [],
                                 resolved.document_ids, resolved.skipped_document_ids)
 
-        if not sources and mode == "grounded":
-            # Never ask the model to answer without evidence in grounded modes.
-            message = NO_EVIDENCE if resolved.document_ids else NO_DOCUMENTS
-            return result([AnswerSegment("library", message)])
         try:
-            raw = self.answerer.generate(query, sources, mode=mode, selection=selection)
-        except AnswerConfigurationError as exc:
-            raise GenerationUnavailable(str(exc)) from exc
-        except AnswerGenerationError as exc:
-            raise GenerationFailed(str(exc)) from exc
-        segments = split_segments(raw, mode)
-        if not segments:
-            raise GenerationFailed("The model returned an empty answer. Please retry.")
-        return result(segments, invalid_citations(raw, len(sources)))
+            sources = retrieve_evidence(self.retriever, self.resolver, resolved, retrieval_query, top_k)
+            log.timings_ms["retrieval"] = elapsed(started)
+            log.sources = [source_reference(n, s) for n, s in enumerate(sources, 1)]
+            if not sources and mode == "grounded":
+                # Never ask the model to answer without evidence in grounded modes.
+                log.status = "no_evidence"
+                return result([AnswerSegment("library", NO_EVIDENCE if resolved.document_ids else NO_DOCUMENTS)])
+            generating = perf_counter()
+            try:
+                raw = self.answerer.generate(query, sources, mode=mode, selection=selection)
+            except AnswerConfigurationError as exc:
+                raise GenerationUnavailable(str(exc)) from exc
+            except AnswerGenerationError as exc:
+                raise GenerationFailed(str(exc)) from exc
+            log.timings_ms["generation"] = elapsed(generating)
+            segments = split_segments(raw, mode)
+            if not segments:
+                raise GenerationFailed("The model returned an empty answer. Please retry.")
+            log.status = "complete"
+            return result(segments, invalid_citations(raw, len(sources)))
+        except ServiceError as exc:
+            log.error = str(exc)
+            raise
+        finally:
+            log.timings_ms["total"] = elapsed(started)
+            record_log(self.logs, log)

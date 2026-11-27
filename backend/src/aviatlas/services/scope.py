@@ -30,7 +30,7 @@ class ScopeResolver:
                 record = self.repository.get(document_id)
                 if record is None:
                     raise DocumentNotFound("Document not found.")
-                if record.status != "indexed" or not record.chunks:
+                if not record.searchable:
                     raise DocumentNotReady("Document is not ready. Please parse it first.")
             return ResolvedScope(ids)
         if request.collection_id is not None:
@@ -41,8 +41,8 @@ class ScopeResolver:
         else:
             records = self.repository.all_records()
         records.sort(key=lambda r: r.uploaded_at)
-        ready = [r.id for r in records if r.status == "indexed" and r.chunks]
-        skipped = [r.id for r in records if not (r.status == "indexed" and r.chunks)]
+        ready = [r.id for r in records if r.searchable]
+        skipped = [r.id for r in records if not r.searchable]
         return ResolvedScope(ready, skipped)
 
     @staticmethod

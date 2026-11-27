@@ -1,5 +1,15 @@
 # Changelog
 
+## M6 — Chunk corrections, safe rebuilding, Q&A logs
+
+- Reader 分块 tab: view, edit, exclude, and restore chunks; edits re-embed only that chunk.
+- Corrections stored separately, anchored to generated text, reapplied after reprocessing; corrections that cannot be placed are listed for review (attach to a suggested chunk or discard).
+- Reprocessing keeps the current version searchable and keeps it when parsing or embedding fails; a crash mid-reprocess restores it on startup; leftover vector collections are removed.
+- Searches wait for index switches instead of failing (previously ~140 ms of errors per reprocess).
+- Q&A logs for single questions and conversation turns, with source references, timings, model, status; 问答日志 tab.
+- Library cards show edited/excluded counts and corrections awaiting review.
+- Migration: tables created on startup; chunks of failed documents without an index are cleared.
+
 ## M5 — Formats, OCR, structured chunking
 
 - Upload DOCX, Markdown, and TXT (UTF-8 or GBK) besides PDF; content is checked against the extension.

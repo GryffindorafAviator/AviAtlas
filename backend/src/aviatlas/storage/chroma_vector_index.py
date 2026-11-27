@@ -68,9 +68,11 @@ class ChromaVectorIndex:
             raise DocumentNotReady("Document index is inconsistent. Please parse it again.")
 
     def replace(self, document_id: UUID, chunk_ids: Sequence[UUID], vectors, *, model_name: str) -> None:
+        """Write a new collection, then switch the manifest to it; the old index serves until the switch
+        and stays intact if writing fails."""
         if len(vectors) != len(chunk_ids):
             raise ValueError("Each chunk needs exactly one vector.")
-        self.delete(document_id)
+        previous = self._manifest(document_id)
         name = f"doc-{document_id.hex}-{uuid4().hex}"
         collection = self.client.create_collection(name, embedding_function=None, metadata={
             "hnsw:space": "cosine", "document_id": str(document_id),
@@ -82,20 +84,43 @@ class ChromaVectorIndex:
                 collection.add(ids=[str(c) for c in chunk_ids[start:start + size]],
                                embeddings=[list(map(float, v)) for v in vectors[start:start + size]])
             with self.repository.connect() as connection:
-                connection.execute("INSERT INTO index_manifest VALUES (?, ?, ?)",
+                connection.execute("INSERT OR REPLACE INTO index_manifest VALUES (?, ?, ?)",
                                    (str(document_id), name, model_name))
         except Exception:
             self.client.delete_collection(name)
             raise
+        if previous:
+            self._drop(previous[0])
+
+    def _drop(self, name: str) -> None:
+        from chromadb.errors import NotFoundError
+        try:
+            self.client.delete_collection(name)
+        except NotFoundError:
+            pass
+
+    def vectors(self, document_id: UUID, chunk_ids: Sequence[UUID]) -> dict[UUID, list[float]]:
+        """Stored vectors for the given chunks (missing ones are left out)."""
+        row = self._manifest(document_id)
+        if row is None or not chunk_ids:
+            return {}
+        raw = self._collection(row[0]).get(ids=[str(c) for c in chunk_ids], include=["embeddings"])
+        return {UUID(i): list(map(float, v)) for i, v in zip(raw["ids"], raw["embeddings"])}
+
+    def collect_garbage(self) -> int:
+        """Delete collections no manifest row points to (left by an interrupted rebuild)."""
+        with self.repository.connect() as connection:
+            live = {row[0] for row in connection.execute("SELECT collection_name FROM index_manifest")}
+        stale = [c.name if hasattr(c, "name") else c for c in self.client.list_collections()]
+        stale = [n for n in stale if n.startswith("doc-") and n not in live]
+        for name in stale:
+            self._drop(name)
+        return len(stale)
 
     def delete(self, document_id: UUID) -> None:
         row = self._manifest(document_id)
         if row:
-            from chromadb.errors import NotFoundError
-            try:
-                self.client.delete_collection(row[0])
-            except NotFoundError:
-                pass
+            self._drop(row[0])
         with self.repository.connect() as connection:
             connection.execute("DELETE FROM index_manifest WHERE document_id=?", (str(document_id),))
 

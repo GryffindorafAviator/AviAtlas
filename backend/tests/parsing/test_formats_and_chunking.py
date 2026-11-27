@@ -74,7 +74,8 @@ def test_converter_options_follow_the_route():
     from docling.datamodel.base_models import InputFormat
     options = {layer: parser._converter(layer).format_to_options[InputFormat.PDF].pipeline_options
                for layer in ['native', 'mixed', 'scanned']}
-    assert [(o.do_ocr, o.ocr_options.force_full_page_ocr) for o in options.values()] == [(False, False), (True, False), (True, True)]
+    from docling.datamodel.pipeline_options import OcrMode
+    assert [(o.do_ocr, o.ocr_options.mode == OcrMode.FULL_PAGE) for o in options.values()] == [(False, False), (True, False), (True, True)]
 
 
 def test_docx_is_parsed_with_headings_lists_and_tables(tmp_path):

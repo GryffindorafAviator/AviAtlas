@@ -71,6 +71,11 @@ class RetrievalChunk(BaseModel):
     page_range: tuple[int, int] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     embedding: list[float] | None = None
+    # Materialized from the user's correction (authoritative, stored separately); `content`
+    # stays the generated text so the correction can be re-anchored after reprocessing.
+    edited_text: str | None = None
+    excluded: bool = False
+    correction_id: UUID | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -98,7 +103,7 @@ class RetrievalChunk(BaseModel):
 
     @property
     def resolved_text(self) -> str:
-        return self.text or self.content or ""
+        return self.edited_text or self.text or self.content or ""
 
 
 class RetrievalResult(BaseModel):

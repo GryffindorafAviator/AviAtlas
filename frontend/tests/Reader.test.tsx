@@ -81,7 +81,7 @@ it('preserves input and submission when a status poll refreshes the document', a
 it('disables submission until the document finishes indexing', async () => {
   const server = chatServer(); vi.stubGlobal('fetch', server.fetcher);
   const user = userEvent.setup();
-  const { rerender } = render(<Reader doc={{ ...doc, status: 'indexing' }}/>);
+  const { rerender } = render(<Reader doc={{ ...doc, status: 'indexing', chunks_count: 0 }}/>);
   expect((screen.getByRole('textbox') as HTMLTextAreaElement).disabled).toBe(true);
   expect((screen.getByRole('button', { name: /发送/ }) as HTMLButtonElement).disabled).toBe(true);
   rerender(<Reader doc={doc}/>);
@@ -235,4 +235,10 @@ it('opens a text document at the block a library source pointed to', async () =>
   await screen.findByText('Two');
   expect(document.getElementById('block-p2')!.className).toContain('is-cited');
   expect(screen.getByText('One').tagName).toBe('P');
+});
+it('a document being reprocessed keeps answering from its previous index', async () => {
+  vi.stubGlobal('fetch', chatServer().fetcher);
+  render(<Reader doc={{ ...doc, status: 'parsing' }}/>);
+  expect((screen.getByRole('textbox') as HTMLTextAreaElement).disabled).toBe(false);
+  expect(screen.getByText('重新处理中 · 仍可提问')).toBeTruthy();
 });

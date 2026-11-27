@@ -16,11 +16,16 @@ from aviatlas.api.models import (
     ConversationSummary, MessageOutput, MessageRequest,
 )
 from aviatlas.api.models import ContentBlock, DocumentContent
+from aviatlas.api.models import (
+    AttachCorrection, ChunkOutput, ChunkUpdate, DocumentChunks, LogDetail, LogListResponse, LogSummary,
+    OrphanedCorrectionOutput,
+)
+from aviatlas.services.corrections import UNSET
 from aviatlas.chunking.structured_chunker import CHUNKER_VERSION
 from aviatlas.parsing.formats import MEDIA_TYPES
 from aviatlas.services.models import ScopeRequest, Selection
 from aviatlas.services.errors import (
-    CollectionNotFound, ConversationBusy, ConversationNotFound, DuplicateDocument,
+    ChunkNotFound, CorrectionNotFound, CollectionNotFound, ConversationBusy, ConversationNotFound, DuplicateDocument,
     DocumentBusy, ServiceError, InvalidInput, DocumentNotFound, DocumentNotReady,
     DocumentProcessingFailed, RetrievalUnavailable, GenerationUnavailable, GenerationFailed,
 )
@@ -33,7 +38,7 @@ app = FastAPI(
 )
 
 _ERROR_STATUS = {
-    CollectionNotFound: 404, ConversationNotFound: 404, ConversationBusy: 409, DocumentBusy: 409, DuplicateDocument: 409, InvalidInput: 400, DocumentNotFound: 404, DocumentNotReady: 400,
+    ChunkNotFound: 404, CorrectionNotFound: 404, CollectionNotFound: 404, ConversationNotFound: 404, ConversationBusy: 409, DocumentBusy: 409, DuplicateDocument: 409, InvalidInput: 400, DocumentNotFound: 404, DocumentNotReady: 400,
     DocumentProcessingFailed: 500, RetrievalUnavailable: 503,
     GenerationUnavailable: 503, GenerationFailed: 502,
 }
@@ -181,7 +186,7 @@ def post_message(conversation_id: UUID, request: MessageRequest, services: Servi
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-def summarize(record, collection_ids=None) -> DocumentSummary:
+def summarize(record, collection_ids=None, pending: int = 0) -> DocumentSummary:
     return DocumentSummary(
         document_id=record.id, filename=record.filename, title=record.title,
         status=record.status, uploaded_at=record.uploaded_at,
@@ -192,6 +197,8 @@ def summarize(record, collection_ids=None) -> DocumentSummary:
         source_format=record.metadata.get("source_format") or "pdf",
         text_layer=record.metadata.get("text_layer"), ocr_page_count=len(record.metadata.get("ocr_pages") or []),
         needs_reprocess=record.status == "indexed" and record.metadata.get("chunker") != CHUNKER_VERSION,
+        edited_chunks=sum(c.edited_text is not None for c in record.chunks),
+        excluded_chunks=sum(c.excluded for c in record.chunks), pending_corrections=pending,
     )
 
 @app.get("/api/v1/documents", response_model=DocumentListResponse)
@@ -199,12 +206,14 @@ def list_documents(limit: int = Query(default=20, ge=1, le=100),
                    offset: int = Query(default=0, ge=0), collection_id: UUID | None = Query(default=None), services: Services = Depends(get_services)):
     ids = collection_service(services).document_ids(collection_id) if collection_id is not None else None
     records, total = services.documents.list(limit, offset, document_ids=ids)
-    return DocumentListResponse(items=[summarize(record, services.collections.collection_ids(record.id) if services.collections else []) for record in records],
+    return DocumentListResponse(items=[summarize(record, services.collections.collection_ids(record.id) if services.collections else [],
+                                                 pending_corrections(services, record.id)) for record in records],
                                 total=total, limit=limit, offset=offset)
 
 @app.get("/api/v1/documents/{document_id}", response_model=DocumentSummary)
 def document_detail(document_id: UUID, services: Services = Depends(get_services)):
-    return summarize(services.documents.get(document_id), services.collections.collection_ids(document_id) if services.collections else [])
+    return summarize(services.documents.get(document_id), services.collections.collection_ids(document_id) if services.collections else [],
+                     pending_corrections(services, document_id))
 
 @app.post("/api/v1/documents/{document_id}/process", response_model=ProcessingResponse, status_code=202)
 def process_document(document_id: UUID, background_tasks: BackgroundTasks,
@@ -283,3 +292,105 @@ def document_collections(document_id: UUID, services: Services = Depends(get_ser
 @app.put("/api/v1/documents/{document_id}/collections", response_model=DocumentCollections)
 def update_document_collections(document_id: UUID, request: DocumentCollections, services: Services = Depends(get_services)):
     return {"collection_ids": collection_service(services).replace_memberships(document_id, request.collection_ids)}
+
+
+def pending_corrections(services: Services, document_id: UUID) -> int:
+    if services.corrections is None:
+        return 0
+    return sum(c.status == "orphaned" for c in services.corrections.repository.for_document(document_id))
+
+
+def correction_service(services: Services):
+    if services.corrections is None:
+        raise HTTPException(status_code=503, detail="Chunk editing is unavailable.")
+    return services.corrections
+
+
+def chunk_output(record, position: int, chunk) -> ChunkOutput:
+    blocks = {b.id: b for b in record.blocks}
+    pages = [p.page_number for b in chunk.block_ids if b in blocks for p in blocks[b].provenance]
+    return ChunkOutput(
+        chunk_id=chunk.id, position=position, content=chunk.resolved_text, original=chunk.content,
+        edited=chunk.edited_text is not None, excluded=chunk.excluded, correction_id=chunk.correction_id,
+        block_ids=chunk.block_ids, page_range=(min(pages), max(pages)) if pages else None,
+        section_title=chunk.section_title, kind=chunk.metadata.get("kind", "text"),
+        part=chunk.metadata.get("part"), parts=chunk.metadata.get("parts"))
+
+
+@app.get("/api/v1/documents/{document_id}/chunks", response_model=DocumentChunks)
+def document_chunks(document_id: UUID, services: Services = Depends(get_services)):
+    record, orphans = correction_service(services).overview(document_id)
+    return DocumentChunks(
+        document_id=record.id, status=record.status,
+        chunks=[chunk_output(record, i, c) for i, c in enumerate(record.chunks, 1)],
+        orphaned=[OrphanedCorrectionOutput(
+            correction_id=o.correction.correction_id, original_text=o.correction.original_text, text=o.correction.text,
+            excluded=o.correction.excluded, context=o.correction.context, candidate_chunk_ids=o.candidate_chunk_ids,
+            updated_at=o.correction.updated_at) for o in orphans])
+
+
+@app.patch("/api/v1/documents/{document_id}/chunks/{chunk_id}", response_model=ChunkOutput)
+def update_chunk(document_id: UUID, chunk_id: UUID, request: ChunkUpdate, services: Services = Depends(get_services)):
+    fields = request.model_fields_set
+    if not fields & {"text", "excluded"} or ("excluded" in fields and request.excluded is None):
+        raise HTTPException(status_code=422, detail="Send text and/or excluded.")
+    chunk = correction_service(services).update(
+        document_id, chunk_id, text=request.text if "text" in fields else UNSET,
+        excluded=request.excluded if "excluded" in fields else UNSET)
+    record = services.documents.get(document_id)
+    return chunk_output(record, next(i for i, c in enumerate(record.chunks, 1) if c.id == chunk.id), chunk)
+
+
+@app.post("/api/v1/documents/{document_id}/corrections/{correction_id}/attach", response_model=ChunkOutput)
+def attach_correction(document_id: UUID, correction_id: UUID, request: AttachCorrection,
+                      services: Services = Depends(get_services)):
+    chunk = correction_service(services).attach(document_id, correction_id, request.chunk_id)
+    record = services.documents.get(document_id)
+    return chunk_output(record, next(i for i, c in enumerate(record.chunks, 1) if c.id == chunk.id), chunk)
+
+
+@app.delete("/api/v1/documents/{document_id}/corrections/{correction_id}", status_code=204)
+def dismiss_correction(document_id: UUID, correction_id: UUID, services: Services = Depends(get_services)):
+    correction_service(services).dismiss(document_id, correction_id)
+    return Response(status_code=204)
+
+
+def log_service(services: Services):
+    if services.logs is None:
+        raise HTTPException(status_code=503, detail="Q&A logs are unavailable.")
+    return services.logs
+
+
+def log_summary(log) -> dict:
+    return {"log_id": log.log_id, "created_at": log.created_at, "kind": log.kind, "question": log.question,
+            "mode": log.mode, "status": log.status, "source_count": len(log.sources), "model": log.model,
+            "timings_ms": log.timings_ms, "error": log.error}
+
+
+@app.get("/api/v1/logs", response_model=LogListResponse)
+def list_logs(limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0),
+              status: str | None = Query(default=None, pattern="^(complete|no_evidence|stopped|failed)$"),
+              services: Services = Depends(get_services)):
+    items, total = log_service(services).list(limit, offset, status)
+    return {"items": [log_summary(log) for log in items], "total": total, "limit": limit, "offset": offset}
+
+
+@app.get("/api/v1/logs/{log_id}", response_model=LogDetail)
+def log_detail(log_id: UUID, services: Services = Depends(get_services)):
+    log = log_service(services).get(log_id)
+    if log is None:
+        raise HTTPException(status_code=404, detail="Log entry not found.")
+    return {**asdict(log), **log_summary(log)}
+
+
+@app.delete("/api/v1/logs/{log_id}", status_code=204)
+def delete_log(log_id: UUID, services: Services = Depends(get_services)):
+    if not log_service(services).delete(log_id):
+        raise HTTPException(status_code=404, detail="Log entry not found.")
+    return Response(status_code=204)
+
+
+@app.delete("/api/v1/logs", status_code=204)
+def clear_logs(services: Services = Depends(get_services)):
+    log_service(services).clear()
+    return Response(status_code=204)

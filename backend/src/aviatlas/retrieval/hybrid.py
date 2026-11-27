@@ -10,6 +10,7 @@ from time import perf_counter
 from typing import Literal
 
 from aviatlas.retrieval.dense import DenseRetriever
+from aviatlas.retrieval.guard import index_guard
 from aviatlas.retrieval.keyword import KeywordRetriever
 from aviatlas.retrieval.models import RetrievalResult, RetrievalScope, ScoredHit
 from aviatlas.retrieval.resolution import ScopedRecords
@@ -46,6 +47,10 @@ class HybridRetriever:
         return self.run(query, scope, top_k, method).results
 
     def run(self, query: str, scope: RetrievalScope, top_k: int = 3, method: Method = "hybrid") -> RetrievalRun:
+        with index_guard.read():
+            return self._run(query, scope, top_k, method)
+
+    def _run(self, query: str, scope: RetrievalScope, top_k: int, method: Method) -> RetrievalRun:
         if method not in METHODS:
             raise ValueError(f"Unknown retrieval method: {method}")
         started = perf_counter()

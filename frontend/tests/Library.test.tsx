@@ -126,3 +126,38 @@ it('rejects unsupported files before uploading', async () => {
   expect(calls.some(c => c.url.startsWith('/api/v1/documents/upload'))).toBe(false);
   expect(document.querySelector('input[type=file]')!.getAttribute('accept')).toBe('.pdf,.docx,.md,.markdown,.txt');
 });
+
+it('browses Q&A logs, expands an entry, filters, and clears', async () => {
+  const entry = { log_id: 'l1', created_at: '2026-11-27T08:00:00Z', kind: 'conversation', question: 'And torque?', mode: 'grounded', status: 'complete', source_count: 1, model: 'test/model', timings_ms: { retrieval: 40, first_token: 900, total: 2400 }, error: null };
+  const failed = { ...entry, log_id: 'l2', kind: 'ask', question: 'Broken?', status: 'failed', source_count: 0, error: 'Answer generation failed.' };
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    calls.push({ url, body: options?.method });
+    if (url === '/api/v1/collections') return json({ items: [] });
+    if (url.startsWith('/api/v1/documents?')) return json({ items: [listed], total: 1 });
+    if (url === '/api/v1/logs?limit=50&offset=0') return json({ items: [entry, failed], total: 2 });
+    if (url === '/api/v1/logs?limit=50&offset=0&status=failed') return json({ items: [failed], total: 1 });
+    if (url === '/api/v1/logs/l1') return json({ ...entry, search_query: 'standalone torque', scope: {}, document_ids: ['d1'], skipped_document_ids: [], answer: 'Torque is r × F [1].', segments: [], invalid_citations: [3],
+      sources: [{ citation: 1, document_id: 'd1', document_name: 'listed.pdf', chunk_id: 'k', page_range: [4, 4], section_title: null, rank: 1, retrieval_method: 'hybrid', scores: { dense: .5, bm25: 3, rrf: .03 }, ranks: { dense: 2, bm25: 1 } }] });
+    if (url === '/api/v1/logs' && options?.method === 'DELETE') return new Response(null, { status: 204 });
+    return json({ detail: 'unexpected' }, 500);
+  }));
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  const user = userEvent.setup();
+  render(<App/>);
+  await screen.findByText('listed.pdf');
+  await user.click(screen.getByRole('tab', { name: '问答日志' }));
+  await user.click(await screen.findByRole('button', { name: /And torque\?/ }));
+  expect(await screen.findByText('standalone torque')).toBeTruthy();
+  expect(screen.getByText('检索 40 ms · 首字 900 ms · 总计 2.4 s')).toBeTruthy();
+  expect(screen.getByText('[3]')).toBeTruthy();
+  expect(screen.getByText('关键词 #1 · 3.00')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: /打开原文/ }));
+  expect(await screen.findByText('Reader listed.pdf page 4')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: /返回图书馆/ }));
+  await user.click(screen.getByRole('tab', { name: '问答日志' }));
+  await user.selectOptions(await screen.findByLabelText('状态'), 'failed');
+  expect(await screen.findByText('Broken?')).toBeTruthy();
+  expect(screen.queryByText('And torque?')).toBeNull();
+  await user.click(screen.getByRole('button', { name: '清空日志' }));
+  expect(calls.some(c => c.url === '/api/v1/logs' && c.body === 'DELETE')).toBe(true);
+});

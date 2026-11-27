@@ -75,6 +75,10 @@ class DocumentSummary(BaseModel):
     ocr_page_count: int = 0
     # Indexed with an older chunker; processing again applies the current one.
     needs_reprocess: bool = False
+    edited_chunks: int = 0
+    excluded_chunks: int = 0
+    # Corrections whose text was not found after reprocessing; they need review.
+    pending_corrections: int = 0
 
 class DocumentListResponse(BaseModel):
     items: list[DocumentSummary]
@@ -250,3 +254,80 @@ class DocumentContent(BaseModel):
     document_id: UUID
     source_format: str
     blocks: list[ContentBlock]
+
+
+class ChunkOutput(BaseModel):
+    chunk_id: UUID
+    position: int
+    content: str               # what retrieval uses: the edited text if any
+    original: str              # generated text
+    edited: bool
+    excluded: bool
+    correction_id: UUID | None = None
+    block_ids: list[UUID]
+    page_range: tuple[int, int] | None = None
+    section_title: str | None = None
+    kind: str = "text"
+    part: int | None = None
+    parts: int | None = None
+
+
+class OrphanedCorrectionOutput(BaseModel):
+    correction_id: UUID
+    original_text: str
+    text: str | None
+    excluded: bool
+    context: dict
+    candidate_chunk_ids: list[UUID]
+    updated_at: datetime
+
+
+class DocumentChunks(BaseModel):
+    document_id: UUID
+    status: str
+    chunks: list[ChunkOutput]
+    orphaned: list[OrphanedCorrectionOutput]
+
+
+class ChunkUpdate(BaseModel):
+    """Send `text` (null restores the generated text) and/or `excluded`."""
+
+    text: str | None = Field(default=None, max_length=20000)
+    excluded: bool | None = None
+
+
+class AttachCorrection(BaseModel):
+    chunk_id: UUID
+
+
+class LogSummary(BaseModel):
+    log_id: UUID
+    created_at: datetime
+    kind: str
+    question: str
+    mode: str
+    status: str
+    source_count: int
+    model: str | None = None
+    timings_ms: dict[str, float] = Field(default_factory=dict)
+    error: str | None = None
+
+
+class LogDetail(LogSummary):
+    search_query: str | None = None
+    scope: dict
+    document_ids: list[str]
+    skipped_document_ids: list[str]
+    sources: list[dict]
+    answer: str
+    segments: list[dict]
+    invalid_citations: list[int]
+    conversation_id: str | None = None
+    message_id: str | None = None
+
+
+class LogListResponse(BaseModel):
+    items: list[LogSummary]
+    total: int
+    limit: int
+    offset: int

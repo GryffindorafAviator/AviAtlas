@@ -1,4 +1,4 @@
-export type Doc = { document_id: string; filename: string; title: string | null; status: string; page_count: number | null; chunks_count: number; last_error: string | null; uploaded_at: string; collection_ids?: string[]; source_format?: SourceFormat; text_layer?: string | null; ocr_page_count?: number; needs_reprocess?: boolean };
+export type Doc = { document_id: string; filename: string; title: string | null; status: string; page_count: number | null; chunks_count: number; last_error: string | null; uploaded_at: string; collection_ids?: string[]; source_format?: SourceFormat; text_layer?: string | null; ocr_page_count?: number; needs_reprocess?: boolean; edited_chunks?: number; excluded_chunks?: number; pending_corrections?: number };
 export type SourceFormat = 'pdf' | 'docx' | 'markdown' | 'text';
 export const formatNames: Record<SourceFormat, string> = { pdf: 'PDF', docx: 'DOCX', markdown: 'MD', text: 'TXT' };
 export const UPLOAD_ACCEPT = '.pdf,.docx,.md,.markdown,.txt';
@@ -85,3 +85,17 @@ export function splitSegments(raw: string, mode: AnswerMode = 'grounded'): Segme
   }
   return out;
 }
+
+export type Chunk = {
+  chunk_id: string; position: number; content: string; original: string; edited: boolean; excluded: boolean;
+  correction_id: string | null; block_ids: string[]; page_range: [number, number] | null; section_title: string | null;
+  kind: string; part: number | null; parts: number | null;
+};
+export type OrphanedCorrection = { correction_id: string; original_text: string; text: string | null; excluded: boolean; context: { section_title?: string | null; page_range?: [number, number] | null }; candidate_chunk_ids: string[]; updated_at: string };
+export type DocumentChunks = { document_id: string; status: string; chunks: Chunk[]; orphaned: OrphanedCorrection[] };
+export type LogStatus = 'complete' | 'no_evidence' | 'stopped' | 'failed';
+export type LogSummary = { log_id: string; created_at: string; kind: 'ask' | 'conversation'; question: string; mode: string; status: LogStatus; source_count: number; model: string | null; timings_ms: Record<string, number>; error: string | null };
+export type LogSource = { citation: number; document_id: string | null; document_name: string | null; chunk_id: string | null; page_range: [number, number] | null; section_title: string | null; rank: number | null; retrieval_method: string | null; scores: Record<string, number>; ranks: Record<string, number> };
+export type LogDetail = LogSummary & { search_query: string | null; scope: Record<string, unknown>; document_ids: string[]; skipped_document_ids: string[]; sources: LogSource[]; answer: string; segments: Segment[]; invalid_citations: number[]; conversation_id: string | null };
+/** A document reprocessing in the background still serves its previous index. */
+export const canAsk = (d: Doc) => d.status === 'indexed' || (['queued', 'parsing', 'indexing'].includes(d.status) && d.chunks_count > 0);

@@ -8,6 +8,7 @@ conversation.
 from __future__ import annotations
 import logging
 import queue
+from time import perf_counter
 from collections.abc import Iterator
 from dataclasses import dataclass
 from threading import Event, Lock, Thread
@@ -20,7 +21,8 @@ from aviatlas.services.models import (
     AnswerMode, ConversationRecord, MessageRecord, ResolvedScope, ScopeRequest, Selection,
 )
 from aviatlas.services.ports import ConversationalAnswerer, Retriever
-from aviatlas.services.qa import retrieve_evidence, validate_question
+from aviatlas.services.qa import elapsed, new_log, record_log, retrieve_evidence, validate_question
+from aviatlas.storage.qa_log_repository import source_reference
 from aviatlas.services.scope import ScopeResolver
 from aviatlas.storage.conversation_repository import SQLiteConversationRepository
 
@@ -41,8 +43,9 @@ class TurnEvent:
 
 class Turn:
     def __init__(self, service: ConversationService, conversation_id: UUID, user: MessageRecord,
-                 assistant: MessageRecord, state: dict, resolved: ResolvedScope, top_k: int, lock: Lock):
-        self.conversation_id, self.user, self.assistant = conversation_id, user, assistant
+                 assistant: MessageRecord, state: dict, resolved: ResolvedScope, top_k: int, lock: Lock,
+                 scope: ScopeRequest):
+        self.conversation_id, self.user, self.assistant, self._scope = conversation_id, user, assistant, scope
         self._service, self._state, self._resolved, self._top_k, self._lock = service, state, resolved, top_k, lock
         self._events: queue.Queue = queue.Queue()
         self._cancelled = Event()
@@ -68,18 +71,29 @@ class Turn:
         sources, search_query, parts = [], None, []
         payload = {"mode": mode, "document_ids": [str(d) for d in self._resolved.document_ids],
                    "skipped_document_ids": [str(d) for d in self._resolved.skipped_document_ids]}
+        log = new_log("conversation", self._state["question"], mode, "", self._scope, self._resolved, service.answerer)
+        log.conversation_id, log.message_id = str(self.conversation_id), str(self.assistant.message_id)
+        started = perf_counter()
 
         def finish(content: str, status: str, **extra) -> MessageRecord:
             final = {**payload, "search_query": search_query, "source_count": len(sources), **extra}
             service.repository.finish_message(self.assistant.message_id, content, status, final, sources)
+            log.status = "no_evidence" if status == "complete" and not sources and mode == "grounded" else status
+            log.search_query, log.answer, log.error = search_query, content, extra.get("error")
+            log.segments, log.invalid_citations = extra.get("segments") or [], extra.get("invalid_citations") or []
+            log.sources = [source_reference(n, s) for n, s in enumerate(sources, 1)]
             return next(m for m in service.repository.messages(self.conversation_id)
                         if m.message_id == self.assistant.message_id)
 
+        def retrieve(query):
+            begun = perf_counter()
+            try:
+                return retrieve_evidence(service.retriever, service.resolver, self._resolved, query, self._top_k)
+            finally:
+                log.timings_ms["retrieval"] = elapsed(begun)
+
         try:
-            graph = build_turn_graph(
-                service.answerer,
-                lambda query: retrieve_evidence(service.retriever, service.resolver, self._resolved, query, self._top_k),
-                self._cancelled, history_chars=service.history_chars)
+            graph = build_turn_graph(service.answerer, retrieve, self._cancelled, history_chars=service.history_chars)
             state = {}
             for kind, chunk in graph.stream(self._state, stream_mode=["custom", "values"]):
                 if kind == "values":
@@ -90,6 +104,8 @@ class Turn:
                         "search_query": search_query, "sources": sources, **{
                             k: payload[k] for k in ("document_ids", "skipped_document_ids")}}))
                 else:
+                    if not parts:
+                        log.timings_ms["first_token"] = elapsed(started)
                     parts.append(chunk["text"])
                     self._events.put(TurnEvent("delta", {"text": chunk["text"]}))
             segments = state["segments"]
@@ -109,6 +125,7 @@ class Turn:
             else:
                 logger.exception("Conversation turn failed: %s", self.conversation_id)
                 detail = "Answer failed. Please retry."
+            log.error = detail
             try:
                 message = finish("".join(parts), "failed", error=detail)
             except Exception:
@@ -116,6 +133,8 @@ class Turn:
                 message = None
             self._events.put(TurnEvent("error", {"detail": detail, "message": message}))
         finally:
+            log.timings_ms["total"] = elapsed(started)
+            record_log(service.logs, log)
             self._lock.release()
             self._events.put(_END)
 
@@ -123,8 +142,9 @@ class Turn:
 class ConversationService:
     def __init__(self, repository: SQLiteConversationRepository, retriever: Retriever,
                  answerer: ConversationalAnswerer, resolver: ScopeResolver, *,
-                 history_turns: int = 6, history_chars: int = 8000):
+                 history_turns: int = 6, history_chars: int = 8000, logs=None):
         self.repository, self.retriever, self.answerer, self.resolver = repository, retriever, answerer, resolver
+        self.logs = logs
         self.history_turns, self.history_chars = history_turns, history_chars
         self._locks: dict[UUID, Lock] = {}
         self._locks_guard = Lock()
@@ -192,7 +212,8 @@ class ConversationService:
         if not lock.acquire(blocking=False):
             raise ConversationBusy("An answer is still being generated in this conversation.")
         try:
-            resolved = self.resolver.resolve(ScopeRequest(conversation.document_ids, conversation.collection_id))
+            scope = ScopeRequest(conversation.document_ids, conversation.collection_id)
+            resolved = self.resolver.resolve(scope)
             history = self.history(self.repository.messages(conversation_id))
             user = self.repository.add_message(
                 conversation_id, "user", query, "complete",
@@ -202,7 +223,7 @@ class ConversationService:
             assistant = self.repository.add_message(conversation_id, "assistant", "", "streaming", {"mode": mode})
             state = {"question": query, "mode": mode, "selection": selection, "history": history,
                      "has_documents": bool(resolved.document_ids)}
-            return Turn(self, conversation_id, user, assistant, state, resolved, top_k, lock).start()
+            return Turn(self, conversation_id, user, assistant, state, resolved, top_k, lock, scope).start()
         except BaseException:
             lock.release()
             raise

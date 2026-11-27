@@ -65,9 +65,9 @@ keyword_postings(term, chunk_id, document_id, tf)   -- indexed on (term, documen
 - Vector: manifest exists, model matches, collection metadata digest and count match.
 - Keyword: manifest exists, tokenizer version matches, digest matches.
 
-Mismatch raises `DocumentNotReady`. Indexes live outside the record's write, so after an interrupted reparse an index can hold old chunk ids; the digest catches that instead of returning stale or missing chunks. Dense-only search does not need the keyword index.
+Mismatch raises `DocumentNotReady`. Switching a document's indexes and record runs under `index_guard`, so searches never see half a switch ([corrections.md](corrections.md#index-guard)). Indexes live outside the record's write, so after an interrupted reparse an index can hold old chunk ids; the digest catches that instead of returning stale or missing chunks. Dense-only search does not need the keyword index.
 
-Content and provenance in results always come from the document record; indexes store only ids, vectors, and postings.
+Content and provenance in results always come from the document record; indexes store only ids, vectors, and postings. Indexes hold only chunks the user has not excluded; edited chunks are indexed with the edited text.
 
 ## Startup sequence
 

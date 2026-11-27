@@ -41,3 +41,11 @@ class ConversationNotFound(ServiceError):
 
 class ConversationBusy(ServiceError):
     pass
+
+
+class ChunkNotFound(ServiceError):
+    pass
+
+
+class CorrectionNotFound(ServiceError):
+    pass

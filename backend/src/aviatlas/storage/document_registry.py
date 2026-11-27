@@ -29,6 +29,10 @@ DocumentStatus = Literal[
 ]
 
 
+# A document keeps serving its current index while it is queued or reprocessed.
+SEARCHABLE_STATUSES = frozenset({"indexed", "queued", "parsing", "indexing"})
+
+
 class DocumentRecord(BaseModel):
     """Represents a document's metadata, lifecycle state, and indexed content."""
 
@@ -46,6 +50,15 @@ class DocumentRecord(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     blocks: List[Block] = Field(default_factory=list)
     chunks: List[RetrievalChunk] = Field(default_factory=list)
+
+    @property
+    def indexed_chunks(self) -> List[RetrievalChunk]:
+        """Chunks in the indexes: all chunks except those the user excluded."""
+        return [c for c in self.chunks if not c.excluded]
+
+    @property
+    def searchable(self) -> bool:
+        return self.status in SEARCHABLE_STATUSES and bool(self.indexed_chunks)
 
     def set_status(self, status: DocumentStatus) -> None:
         """Update the lifecycle state and keep timestamps in sync."""

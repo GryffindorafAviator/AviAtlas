@@ -65,6 +65,12 @@ Hybrid retrieval runs dense and BM25 recall in parallel (20 candidates each) and
 
 Closing the stream stops generation; the partial answer is saved as `stopped`. Details: [design/conversations.md](design/conversations.md).
 
+## Chunks, corrections, and logs
+
+- `GET /api/v1/documents/{id}/chunks`; `PATCH /api/v1/documents/{id}/chunks/{chunk_id}` with `{"text": "..."}`, `{"text": null}`, or `{"excluded": true}`. Corrections are stored separately and reapplied after reprocessing; ones that cannot be placed are listed under `orphaned` for review (`.../corrections/{id}/attach`, `DELETE .../corrections/{id}`). Details: [design/corrections.md](design/corrections.md).
+- Reprocessing an indexed document (`POST /api/v1/documents/{id}/process`) keeps the current version searchable and keeps it if processing fails.
+- `GET /api/v1/logs`, `GET|DELETE /api/v1/logs/{id}`, `DELETE /api/v1/logs`: one entry per answered question, with retrieval references, timings, model, and status. Details: [design/qa-logs.md](design/qa-logs.md).
+
 ## Current limits
 
 Run a single server worker and one application instance per data directory. There is no user authentication. A local frontend is available; see [frontend setup](../frontend/README.md). Background processing runs in this server process using FastAPI background tasks; it is not an external worker or durable job queue. The legacy `/documents/parse` endpoint still waits for processing to finish. The embedding model reads only the first 128 tokens of each chunk ([chunking.md](design/chunking.md#known-limit-embedding-window)). Citations are requested through prompting; citation correctness and answer quality need evaluation with real books.
@@ -93,7 +99,7 @@ Concrete adapters: Docling, GreedyChunker, SentenceTransformerEmbedder,
                    HybridRetriever(DenseRetriever, KeywordRetriever), AnswerGenerator
 ```
 
-Implementation details: [design/parsing.md](design/parsing.md), [design/chunking.md](design/chunking.md), [design/retrieval.md](design/retrieval.md), [design/answering.md](design/answering.md), [design/conversations.md](design/conversations.md). Decisions: [adr/](adr/). Changes per milestone: [CHANGELOG.md](../CHANGELOG.md).
+Implementation details: [design/parsing.md](design/parsing.md), [design/corrections.md](design/corrections.md), [design/qa-logs.md](design/qa-logs.md), [design/chunking.md](design/chunking.md), [design/retrieval.md](design/retrieval.md), [design/answering.md](design/answering.md), [design/conversations.md](design/conversations.md). Decisions: [adr/](adr/). Changes per milestone: [CHANGELOG.md](../CHANGELOG.md).
 
 `api/dependencies.py` wires the concrete adapters and shared stores together once per process. Routes translate request/response schemas and application errors into HTTP responses; they do not own document processing or question answering logic.
 
