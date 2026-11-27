@@ -40,3 +40,9 @@ backend/data/
 # Frontend dependencies and compiler cache
 node_modules/
 *.tsbuildinfo
+
+# Local retrieval evaluation (tool, question sets that quote library documents, reports, notes).
+backend/eval/
+backend/src/aviatlas/evaluation/
+backend/tests/evaluation/
+docs/evaluation/
