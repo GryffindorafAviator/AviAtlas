@@ -1,5 +1,10 @@
-export type Doc = { document_id: string; filename: string; title: string | null; status: string; page_count: number | null; chunks_count: number; last_error: string | null; uploaded_at: string; collection_ids?: string[] };
-export type Source = { chunk_id: string; content: string; page_range: [number, number] | null; provenance: { page_number: number }[]; document_id?: string | null; document_name?: string | null; score?: number; rank?: number | null; retrieval_method?: string | null; scores?: Record<string, number>; ranks?: Record<string, number>; matched_terms?: string[]; citation?: number };
+export type Doc = { document_id: string; filename: string; title: string | null; status: string; page_count: number | null; chunks_count: number; last_error: string | null; uploaded_at: string; collection_ids?: string[]; source_format?: SourceFormat; text_layer?: string | null; ocr_page_count?: number; needs_reprocess?: boolean };
+export type SourceFormat = 'pdf' | 'docx' | 'markdown' | 'text';
+export const formatNames: Record<SourceFormat, string> = { pdf: 'PDF', docx: 'DOCX', markdown: 'MD', text: 'TXT' };
+export const UPLOAD_ACCEPT = '.pdf,.docx,.md,.markdown,.txt';
+export const isSupportedFile = (name: string) => /\.(pdf|docx|md|markdown|txt)$/i.test(name);
+export type ContentBlock = { block_id: string; type: string; content: string; page_number: number | null };
+export type Source = { chunk_id: string; content: string; page_range: [number, number] | null; provenance: { page_number: number }[]; document_id?: string | null; document_name?: string | null; score?: number; rank?: number | null; retrieval_method?: string | null; scores?: Record<string, number>; ranks?: Record<string, number>; matched_terms?: string[]; citation?: number; block_ids?: string[]; section_title?: string | null };
 export type RetrievalMethod = 'hybrid' | 'dense' | 'bm25';
 export const methodNames: Record<RetrievalMethod, string> = { hybrid: '混合检索', dense: '语义检索', bm25: '关键词检索' };
 export type DebugResponse = { query: string; method: RetrievalMethod; query_terms: string[]; document_ids: string[]; skipped_document_ids: string[]; dense: Source[]; bm25: Source[]; results: Source[]; timings_ms: Record<string, number>; config: Record<string, string | number> };

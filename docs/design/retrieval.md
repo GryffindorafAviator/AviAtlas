@@ -38,6 +38,12 @@ Explicit ids fail instead of skipping: the user named those documents, so silent
 
 No stemming: `tokenizer` and `tokenizers` are distinct terms.
 
+## Embedding device
+
+Embeddings run on CPU by default (`EMBEDDING_DEVICE` overrides). Docling's models use the Apple GPU, and two models using it from different threads at once abort the process (Metal command-buffer assertion), observed when documents were processed concurrently. CPU cost: ~23 ms per query, ~1.7 s per 200 chunks (GPU: 10 ms, 0.9 s).
+
+Calls into the model are serialized (it is not thread-safe) in batches of 64, with a pause between batches; without it the indexing thread retakes the lock at once and a query waited 8.9 s. Measured during a 738-chunk reprocess: slowest search 2.2 s while parsing, 1.0 s while indexing.
+
 ## Storage
 
 Chroma: one collection per document. `index_manifest(document_id, collection_name, model)` in `documents.sqlite3`; collection metadata holds `document_id`, `embedding_model`, `chunk_digest`.
@@ -79,3 +85,4 @@ Rebuild runs last so it skips documents that recovery marked failed or deletion 
 - Loading full record JSON dominates latency (≈ 40–160 ms of 60–190 ms on 4 documents). Cache candidate.
 - Chinese queries on English documents get no BM25 hits.
 - RRF and candidate parameters not yet evaluated (M3).
+- Dense retrieval sees only the first 128 tokens of a chunk ([chunking.md](chunking.md#known-limit-embedding-window)).

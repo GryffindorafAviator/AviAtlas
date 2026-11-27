@@ -202,3 +202,37 @@ it('starts a new conversation and deletes the current one', async () => {
   expect(server.calls.some(c => c.method === 'DELETE' && c.url.endsWith(first.conversation_id))).toBe(true);
   expect([...(screen.getByLabelText('对话') as HTMLSelectElement).options].map(o => o.text)).toEqual(['Second']);
 });
+it('reads a Markdown document by blocks and locates cited paragraphs', async () => {
+  const md: Doc = { ...doc, document_id: 'md-doc', filename: 'notes.md', source_format: 'markdown', page_count: null };
+  const blocks = [
+    { block_id: 'b1', type: 'heading', content: '角速度', page_number: null },
+    { block_id: 'b2', type: 'paragraph', content: '角速度描述**转动**快慢。', page_number: null },
+    { block_id: 'b3', type: 'equation', content: '$$\n\\omega = d\\theta / dt\n$$', page_number: null },
+    { block_id: 'b4', type: 'table', content: '| 量 | 单位 |\n|---|---|\n| 角速度 | rad/s |', page_number: null }];
+  const server = chatServer({
+    reply: b => sse(turn(b, { content: 'See [1].', sources: [{ chunk_id: 'k', content: '| 角速度 | rad/s |', page_range: null, provenance: [], document_name: 'notes.md', block_ids: ['b4'], section_title: '角速度' }] })),
+    other: url => url === '/api/v1/documents/md-doc/content' ? json({ document_id: 'md-doc', source_format: 'markdown', blocks }) : undefined });
+  vi.stubGlobal('fetch', server.fetcher);
+  const user = userEvent.setup();
+  render(<Reader doc={md}/>);
+  expect(await screen.findByRole('heading', { name: '角速度' })).toBeTruthy();
+  expect(screen.getByText('转动').tagName).toBe('STRONG');
+  expect(screen.getByText(/omega = d/).tagName).toBe('PRE');
+  expect(screen.getByRole('cell', { name: 'rad/s' })).toBeTruthy();
+  expect(screen.getByRole('link', { name: '下载原文件' }).getAttribute('href')).toBe('/api/v1/documents/md-doc/file');
+  await user.type(screen.getByRole('textbox'), 'Unit?{Enter}');
+  expect(await screen.findByText('§ 角速度')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /查看第/ })).toBeNull();
+  await user.click(screen.getByRole('button', { name: /定位原文/ }));
+  expect(document.getElementById('block-b4')!.className).toContain('is-cited');
+  expect(document.getElementById('block-b2')!.className).not.toContain('is-cited');
+});
+it('opens a text document at the block a library source pointed to', async () => {
+  const txt: Doc = { ...doc, document_id: 'txt-doc', filename: 'a.txt', source_format: 'text', page_count: null };
+  vi.stubGlobal('fetch', chatServer({ other: url => url.endsWith('/content') ? json({ document_id: 'txt-doc', source_format: 'text', blocks: [
+    { block_id: 'p1', type: 'paragraph', content: 'One', page_number: null }, { block_id: 'p2', type: 'paragraph', content: 'Two', page_number: null }] }) : undefined }).fetcher);
+  render(<Reader doc={txt} initialBlock="p2"/>);
+  await screen.findByText('Two');
+  expect(document.getElementById('block-p2')!.className).toContain('is-cited');
+  expect(screen.getByText('One').tagName).toBe('P');
+});

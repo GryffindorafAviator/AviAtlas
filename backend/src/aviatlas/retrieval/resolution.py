@@ -36,4 +36,5 @@ class ScopedRecords:
             retrieval_method=method, scores=scores or {method: hit.score}, ranks=ranks or {method: rank},
             matched_terms=list(matched_terms or hit.matched_terms), provenance=provenance,
             section_title=chunk.section_title, page_range=(min(pages), max(pages)) if pages else None,
+            block_ids=list(chunk.block_ids),
         )

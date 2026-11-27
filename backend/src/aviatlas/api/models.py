@@ -70,6 +70,11 @@ class DocumentSummary(BaseModel):
     chunks_count: int
     last_error: str | None = None
     collection_ids: list[UUID] = Field(default_factory=list)
+    source_format: str = "pdf"
+    text_layer: str | None = None
+    ocr_page_count: int = 0
+    # Indexed with an older chunker; processing again applies the current one.
+    needs_reprocess: bool = False
 
 class DocumentListResponse(BaseModel):
     items: list[DocumentSummary]
@@ -232,3 +237,16 @@ class MessageRequest(BaseModel):
     mode: Literal["grounded", "open"] = "grounded"
     selection: SelectionInput | None = None
     top_k: int = Field(default=5, ge=1, le=10)
+
+
+class ContentBlock(BaseModel):
+    block_id: UUID
+    type: str
+    content: str
+    page_number: int | None = None
+
+
+class DocumentContent(BaseModel):
+    document_id: UUID
+    source_format: str
+    blocks: list[ContentBlock]

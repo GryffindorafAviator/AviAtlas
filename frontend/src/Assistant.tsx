@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { ScoreBadges } from './ScoreBadges';
 import {
   request, sameScope, sourcePage, splitSegments, streamEvents,
@@ -17,12 +18,12 @@ type Props = {
   fallbackName?: string;
   selection?: Selection | null;
   onClearSelection?: () => void;
-  onOpenSource: (source: Source, page: number) => void;
+  onOpenSource: (source: Source, page?: number) => void;
   canOpen?: boolean;
 };
 
 const segmentLabels: Record<string, string> = { model: '模型补充 · 非文档内容，请自行核实', unlabeled: '未区分来源' };
-const markdown = (text: string) => <Markdown components={{ img: ({ alt }) => <span>{alt || '图片'}</span> }}>{text}</Markdown>;
+const markdown = (text: string) => <Markdown remarkPlugins={[remarkGfm]} components={{ img: ({ alt }) => <span>{alt || '图片'}</span> }}>{text}</Markdown>;
 
 function segmentsOf(m: Message): Segment[] {
   if (m.status === 'streaming') return splitSegments(m.content, m.mode ?? 'grounded');
@@ -53,7 +54,7 @@ function AssistantMessage({ message: m, question, fallbackName, canOpen, onOpenS
     {!!m.removed_source_count && <p className="notice">{m.removed_source_count} 条来源所在的文档已删除。</p>}
     {!!sources.length && <div className="sources"><div className="eyebrow">原文依据 · {sources.length}</div>{sources.map((s, index) => {
       const p = sourcePage(s);
-      return <details className="panel-inset" key={`${s.chunk_id}-${index}`}><summary><span className="source-number">{s.citation ?? index + 1}</span><span className="source-name">{s.document_name || fallbackName || '文档'}</span><span>{p ? `第 ${p} 页` : '无页码'}</span></summary><p>{s.content}</p><ScoreBadges source={s}/>{p && <button className="btn text-button" disabled={!canOpen} onClick={() => onOpenSource(s, p)}>查看第 {p} 页 ↗</button>}</details>;
+      return <details className="panel-inset" key={`${s.chunk_id}-${index}`}><summary><span className="source-number">{s.citation ?? index + 1}</span><span className="source-name">{s.document_name || fallbackName || '文档'}</span><span>{p ? `第 ${p} 页` : '无页码'}</span></summary>{s.section_title && <p className="source-section">§ {s.section_title}</p>}<p>{s.content}</p><ScoreBadges source={s}/>{p ? <button className="btn text-button" disabled={!canOpen} onClick={() => onOpenSource(s, p)}>查看第 {p} 页 ↗</button> : !!s.block_ids?.length && <button className="btn text-button" disabled={!canOpen} onClick={() => onOpenSource(s)}>定位原文 ↗</button>}</details>;
     })}</div>}
   </>;
 }

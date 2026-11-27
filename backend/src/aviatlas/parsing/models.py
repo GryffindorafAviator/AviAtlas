@@ -89,6 +89,11 @@ class DocumentMetadata(BaseModel):
     authors: list[str] = Field(default_factory=list)
     page_count: int | None = Field(default=None, ge=1)
     language: str | None = None
+    source_format: str | None = None  # pdf | docx | markdown | text
+    # PDF only: "native" (every page has a text layer), "mixed", or "scanned".
+    text_layer: str | None = None
+    # PDF pages without a usable text layer; OCR was applied to them.
+    ocr_pages: list[int] = Field(default_factory=list)
 
 
 class ParsedDocument(BaseModel):

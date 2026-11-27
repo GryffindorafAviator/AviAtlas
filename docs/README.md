@@ -27,9 +27,9 @@ The OpenRouter key takes precedence over direct OpenAI configuration. The endpoi
 
 For direct OpenAI, leave `OPENROUTER_API_KEY` empty and set `OPENAI_API_KEY` and `OPENAI_MODEL`. `OPENAI_BASE_URL` optionally selects another Responses-compatible endpoint.
 
-Open http://127.0.0.1:8000/docs to upload and query a PDF:
+Open http://127.0.0.1:8000/docs to upload and query a document (PDF, DOCX, Markdown, or TXT):
 
-1. `POST /api/v1/documents/upload` — multipart field `file`; saves the PDF and queues background processing by default. Save the returned `document_id`.
+1. `POST /api/v1/documents/upload` — multipart field `file`; saves the file and queues background processing by default. Save the returned `document_id`.
 2. `GET /api/v1/documents/{document_id}` — poll until `status` is `indexed`; inspect `last_error` if `failed`.
 3. `POST /api/v1/documents/ask` — JSON:
 
@@ -67,7 +67,7 @@ Closing the stream stops generation; the partial answer is saved as `stopped`. D
 
 ## Current limits
 
-Run a single server worker and one application instance per data directory. There is no user authentication. A local frontend is available; see [frontend setup](../frontend/README.md). Background processing runs in this server process using FastAPI background tasks; it is not an external worker or durable job queue. The legacy `/documents/parse` endpoint still waits for processing to finish. The chunker preserves entire blocks, so exceptionally long blocks can exceed the embedding model's input window. Citations are requested through prompting; citation correctness and answer quality need evaluation with real books.
+Run a single server worker and one application instance per data directory. There is no user authentication. A local frontend is available; see [frontend setup](../frontend/README.md). Background processing runs in this server process using FastAPI background tasks; it is not an external worker or durable job queue. The legacy `/documents/parse` endpoint still waits for processing to finish. The embedding model reads only the first 128 tokens of each chunk ([chunking.md](design/chunking.md#known-limit-embedding-window)). Citations are requested through prompting; citation correctness and answer quality need evaluation with real books.
 
 ## Tests
 
@@ -93,7 +93,7 @@ Concrete adapters: Docling, GreedyChunker, SentenceTransformerEmbedder,
                    HybridRetriever(DenseRetriever, KeywordRetriever), AnswerGenerator
 ```
 
-Implementation details: [design/retrieval.md](design/retrieval.md), [design/answering.md](design/answering.md), [design/conversations.md](design/conversations.md). Decisions: [adr/](adr/). Changes per milestone: [CHANGELOG.md](../CHANGELOG.md).
+Implementation details: [design/parsing.md](design/parsing.md), [design/chunking.md](design/chunking.md), [design/retrieval.md](design/retrieval.md), [design/answering.md](design/answering.md), [design/conversations.md](design/conversations.md). Decisions: [adr/](adr/). Changes per milestone: [CHANGELOG.md](../CHANGELOG.md).
 
 `api/dependencies.py` wires the concrete adapters and shared stores together once per process. Routes translate request/response schemas and application errors into HTTP responses; they do not own document processing or question answering logic.
 
@@ -111,7 +111,7 @@ By default all runtime data lives in `backend/data/`, regardless of the working 
 data/
   documents.sqlite3       # document snapshots and active index manifest
   chroma/                 # persistent vectors, one versioned collection per document
-  uploads/                # original PDF files
+  uploads/                # original uploaded files
 ```
 
 Set `AVIATLAS_DATA_DIR` in `backend/.env` to use a different directory; an absolute path is recommended. Keep the whole directory together when moving or backing it up, with the server stopped. Upload paths are stored as absolute paths, so moving the upload directory requires updating those paths. Runtime files are excluded from Git at the default location.

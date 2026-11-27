@@ -137,18 +137,23 @@ def test_provider_failure_returns_502(client, monkeypatch):
     assert response.status_code == 502
 
 
-def test_parser_preserves_interleaved_table_order(tmp_path):
+def fake_docling(monkeypatch, document):
+    from aviatlas.parsing import docling_parser
+    monkeypatch.setattr(docling_parser, 'pages_without_text', lambda path: (1, []))
+    parser = docling_parser.DoclingParser()
+    parser._converter = lambda layer: SimpleNamespace(convert=lambda path: SimpleNamespace(document=document))
+    return parser
+
+
+def test_parser_preserves_interleaved_table_order(tmp_path, monkeypatch):
     from docling_core.types.doc import DocItemLabel
-    from aviatlas.parsing.docling_parser import DoclingParser
     text1 = SimpleNamespace(label=DocItemLabel.TEXT, text='Before table')
     table = SimpleNamespace(label=DocItemLabel.TABLE,
                             export_to_markdown=lambda **kwargs: '| evidence |')
     text2 = SimpleNamespace(label=DocItemLabel.TEXT, text='After table')
     document = SimpleNamespace(pages={1: object()},
                                iterate_items=lambda: iter([(text1, 0), (table, 0), (text2, 0)]))
-    parser = DoclingParser.__new__(DoclingParser)
-    parser._converter = SimpleNamespace(convert=lambda path: SimpleNamespace(document=document))
-    result = parser.parse(tmp_path / 'book.pdf')
+    result = fake_docling(monkeypatch, document).parse(tmp_path / 'book.pdf')
     assert [b.content for b in result.blocks] == ['Before table', '| evidence |', 'After table']
     assert [b.order for b in result.blocks] == [0, 1, 2]
 
@@ -159,7 +164,7 @@ def test_http_validation_and_not_found_mapping(client):
     assert client.post('/api/v1/documents/ask', json={
         'document_id': str(uuid4()), 'question': 'test'}).status_code == 404
     assert client.post('/api/v1/documents/upload', params={'auto_process': False}, files={
-        'file': ('book.txt', b'text')}).status_code == 400
+        'file': ('book.exe', b'text')}).status_code == 400
 
 
 def test_auto_processing_list_detail_and_delete(client):
@@ -245,15 +250,11 @@ def test_duplicate_upload_is_rejected_and_names_the_existing_file(client):
                        files={'file': ('copy.pdf', b'%PDF-same')}).status_code == 200
 
 
-def test_parser_uses_detected_title_not_storage_name(tmp_path):
+def test_parser_uses_detected_title_not_storage_name(tmp_path, monkeypatch):
     from docling_core.types.doc import DocItemLabel
-    from aviatlas.parsing.docling_parser import DoclingParser
     heading = SimpleNamespace(label=DocItemLabel.TITLE, text='Attention  Is All\nYou Need')
     body = SimpleNamespace(label=DocItemLabel.TEXT, text='Body')
     document = SimpleNamespace(pages={1: object()}, iterate_items=lambda: iter([(body, 0), (heading, 0)]))
-    parser = DoclingParser.__new__(DoclingParser)
-    parser._converter = SimpleNamespace(convert=lambda path: SimpleNamespace(document=document))
-    assert parser.parse(tmp_path / f'{uuid4()}.pdf').metadata.title == 'Attention Is All You Need'
+    assert fake_docling(monkeypatch, document).parse(tmp_path / f'{uuid4()}.pdf').metadata.title == 'Attention Is All You Need'
     untitled = SimpleNamespace(pages={1: object()}, iterate_items=lambda: iter([(body, 0)]))
-    parser._converter = SimpleNamespace(convert=lambda path: SimpleNamespace(document=untitled))
-    assert parser.parse(tmp_path / f'{uuid4()}.pdf').metadata.title is None
+    assert fake_docling(monkeypatch, untitled).parse(tmp_path / f'{uuid4()}.pdf').metadata.title is None

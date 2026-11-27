@@ -15,6 +15,9 @@ from aviatlas.api.models import (
     CitedSource, ConversationCreate, ConversationDetail, ConversationListResponse, ConversationRename,
     ConversationSummary, MessageOutput, MessageRequest,
 )
+from aviatlas.api.models import ContentBlock, DocumentContent
+from aviatlas.chunking.structured_chunker import CHUNKER_VERSION
+from aviatlas.parsing.formats import MEDIA_TYPES
 from aviatlas.services.models import ScopeRequest, Selection
 from aviatlas.services.errors import (
     CollectionNotFound, ConversationBusy, ConversationNotFound, DuplicateDocument,
@@ -186,6 +189,9 @@ def summarize(record, collection_ids=None) -> DocumentSummary:
         indexed_at=record.indexed_at, page_count=record.metadata.get("page_count"),
         blocks_count=len(record.blocks), chunks_count=len(record.chunks),
         last_error=record.metadata.get("last_error"), collection_ids=collection_ids or [],
+        source_format=record.metadata.get("source_format") or "pdf",
+        text_layer=record.metadata.get("text_layer"), ocr_page_count=len(record.metadata.get("ocr_pages") or []),
+        needs_reprocess=record.status == "indexed" and record.metadata.get("chunker") != CHUNKER_VERSION,
     )
 
 @app.get("/api/v1/documents", response_model=DocumentListResponse)
@@ -224,10 +230,21 @@ def delete_document(document_id: UUID, services: Services = Depends(get_services
 def document_file(document_id: UUID, services: Services = Depends(get_services)):
     record = services.documents.get(document_id)
     if not record.filepath or not record.filepath.is_file():
-        raise DocumentNotFound("Original PDF is missing. Upload it again.")
-    return FileResponse(record.filepath, media_type="application/pdf",
-                        filename=record.filename, content_disposition_type="inline",
+        raise DocumentNotFound("Original file is missing. Upload it again.")
+    fmt = record.metadata.get("source_format") or "pdf"
+    # Only PDFs render inline (in the reader); other formats download.
+    return FileResponse(record.filepath, media_type=MEDIA_TYPES.get(fmt, "application/octet-stream"),
+                        filename=record.filename, content_disposition_type="inline" if fmt == "pdf" else "attachment",
                         headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@app.get("/api/v1/documents/{document_id}/content", response_model=DocumentContent)
+def document_content(document_id: UUID, services: Services = Depends(get_services)):
+    """Parsed blocks in reading order, for the text reader."""
+    record = services.documents.get(document_id)
+    return DocumentContent(document_id=record.id, source_format=record.metadata.get("source_format") or "pdf", blocks=[
+        ContentBlock(block_id=b.id, type=b.type.value, content=b.content,
+                     page_number=b.provenance[0].page_number if b.provenance else None) for b in record.blocks])
 
 
 def collection_service(services: Services):

@@ -125,6 +125,8 @@ class RetrievalResult(BaseModel):
     matched_terms: List[str] = Field(default_factory=list)
     section_title: str | None = None
     page_range: tuple[int, int] | None = None
+    # Source blocks, for locating results in documents without pages (DOCX, Markdown, text).
+    block_ids: List[UUID] = Field(default_factory=list)
     source_excerpt: str | None = None
     provenance: List[ProvenanceItem] = Field(default_factory=list)
 

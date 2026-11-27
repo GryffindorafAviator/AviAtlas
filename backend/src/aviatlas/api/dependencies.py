@@ -5,7 +5,7 @@ from threading import Lock
 from pathlib import Path
 import os
 from aviatlas.answering.generator import AnswerGenerator
-from aviatlas.chunking.greedy_chunker import GreedyChunker
+from aviatlas.chunking.structured_chunker import StructuredChunker
 from aviatlas.retrieval.dense import DenseRetriever
 from aviatlas.retrieval.hybrid import HybridRetriever
 from aviatlas.retrieval.keyword import KeywordRetriever
@@ -21,9 +21,14 @@ from aviatlas.storage.sqlite_repository import SQLiteDocumentRepository
 from aviatlas.storage.chroma_vector_index import ChromaVectorIndex
 from aviatlas.storage.keyword_index import SQLiteKeywordIndex
 
-def create_parser():
+def _docling():
     from aviatlas.parsing.docling_parser import DoclingParser
     return DoclingParser()
+
+@lru_cache(maxsize=1)
+def create_parser():
+    from aviatlas.parsing.router import FormatRouter
+    return FormatRouter(_docling)
 
 @dataclass
 class Services:
@@ -52,7 +57,7 @@ def _build_services() -> Services:
     answerer = AnswerGenerator()
     services = Services(
         DocumentService(repository, vectors, data_dir / "uploads", create_parser,
-                        GreedyChunker(max_chars=1000), embedder, keywords),
+                        StructuredChunker(max_chars=1000), embedder, keywords),
         QuestionAnsweringService(repository, retriever, answerer, resolver),
         collections,
         SearchService(retriever, resolver),

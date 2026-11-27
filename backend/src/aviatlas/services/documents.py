@@ -8,6 +8,7 @@ from typing import BinaryIO
 from threading import Lock, RLock
 from uuid import UUID
 
+from aviatlas.parsing.formats import UnsupportedFormat, check_content, source_format
 from aviatlas.storage.document_registry import DocumentRecord
 from aviatlas.retrieval.tokenizer import tokenize
 from aviatlas.services.errors import (
@@ -192,10 +193,13 @@ class DocumentService:
                     logger.exception("Could not resume deletion: %s", record.id)
 
     def upload(self, filename: str | None, stream: BinaryIO) -> DocumentRecord:
-        if not filename or not filename.lower().endswith(".pdf"):
-            raise InvalidInput("Only PDF files are allowed.")
+        try:
+            fmt = source_format(filename)
+        except UnsupportedFormat as exc:
+            raise InvalidInput(str(exc)) from exc
         record = self.repository.register(filename)
-        file_path = self.upload_dir.resolve() / f"{record.id}{Path(filename).suffix}"
+        record.metadata["source_format"] = fmt
+        file_path = self.upload_dir.resolve() / f"{record.id}{Path(filename).suffix.lower()}"
         try:
             self.upload_dir.mkdir(parents=True, exist_ok=True)
             sha256 = _copy_and_hash(stream, file_path)
@@ -204,6 +208,12 @@ class DocumentService:
             self.repository.save(record)
             logger.exception("Document upload failed: %s", record.id)
             raise DocumentProcessingFailed("Failed to save file. Check server logs and retry.") from exc
+        try:
+            check_content(file_path, fmt)
+        except UnsupportedFormat as exc:
+            file_path.unlink(missing_ok=True)
+            self.repository.delete(record.id)
+            raise InvalidInput(str(exc)) from exc
         # Check and claim the hash atomically so concurrent identical uploads
         # cannot both be kept.
         with self._upload_guard:
@@ -242,14 +252,17 @@ class DocumentService:
             parsed = self.parser_factory().parse(record.filepath)
             chunks = self.chunker.chunk(parsed.blocks, document_id=document_id, knowledge_base_id=None)
             if not chunks:
-                raise ValueError("No searchable text was extracted from the PDF.")
+                raise ValueError("No searchable text was extracted from the document.")
             record.set_status("indexing")
             self.repository.save(record)
             vectors = self.embedder.encode([chunk.resolved_text for chunk in chunks])
             record.blocks = parsed.blocks
             record.chunks = chunks
             record.title = parsed.metadata.title
-            record.update_metadata(**parsed.metadata.model_dump())
+            metadata = parsed.metadata.model_dump()
+            # Formats detected at upload win over parser defaults; a missing field keeps the stored value.
+            metadata["source_format"] = record.metadata.get("source_format") or metadata["source_format"] or "pdf"
+            record.update_metadata(**metadata, chunker=getattr(self.chunker, "version", None))
             record.parsed_at = datetime.now(timezone.utc)
             self.vectors.replace(document_id, [chunk.id for chunk in chunks], vectors,
                                  model_name=self.embedder.model_name)

@@ -1,5 +1,17 @@
 # Changelog
 
+## M5 — Formats, OCR, structured chunking
+
+- Upload DOCX, Markdown, and TXT (UTF-8 or GBK) besides PDF; content is checked against the extension.
+- PDFs routed by text layer: no OCR for text PDFs, region OCR for mixed, full-page OCR for scans. OCR page count shown in the library.
+- PDF formulas recovered from the text layer (previously empty); duplicate table captions and table padding removed.
+- Structured chunker: tables with captions in their own chunks (long tables split by rows with repeated header), formulas and code kept with their text, headings never end a chunk, section titles on every chunk.
+- Text reader for non-PDF documents; sources jump to the cited block. Results carry `block_ids`.
+- `GET /api/v1/documents/{id}/content`; `/file` serves the original with its media type.
+- Documents from the old chunker show 重新处理.
+- Fixes: concurrent document processing crashed the server (Apple GPU); embeddings now run on CPU and calls are serialized. Docling models are no longer reloaded for every document.
+- Migration: none required; reprocess documents to apply the new chunking.
+
 ## M4 — Conversations
 
 - Multi-turn conversations per document, collection, or library; stored in SQLite.

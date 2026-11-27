@@ -94,3 +94,35 @@ it('the retrieval inspector shows terms, timings, every candidate list, and over
   await user.click(within(dense).getAllByRole('button', { name: /打开/ })[1]);
   expect(await screen.findByText('Reader listed.pdf page 3')).toBeTruthy();
 });
+
+it('shows formats, OCR pages, and offers reprocessing for documents from the old chunker', async () => {
+  const scanned: Doc = { ...listed, document_id: 'd9', filename: 'scan.pdf', ocr_page_count: 12, needs_reprocess: true };
+  const notes: Doc = { ...listed, document_id: 'd8', filename: 'notes.md', source_format: 'markdown', page_count: null };
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    calls.push({ url, body: undefined });
+    if (url === '/api/v1/collections') return json({ items: [] });
+    if (url.startsWith('/api/v1/documents?')) return json({ items: [scanned, notes], total: 2 });
+    if (url === '/api/v1/documents/d9/process' && options?.method === 'POST') return json({ document_id: 'd9', status: 'queued' }, 202);
+    return json({ detail: 'unexpected' }, 500);
+  }));
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  const user = userEvent.setup();
+  render(<App/>);
+  const card = (await screen.findByText('scan.pdf')).closest('article')!;
+  expect(within(card).getByText('OCR 12 页')).toBeTruthy();
+  expect(within(card).getByText(/旧版分块/)).toBeTruthy();
+  const md = screen.getByText('notes.md').closest('article')!;
+  expect(within(md).getByText('MD')).toBeTruthy();
+  expect(within(md).queryByRole('button', { name: '重新处理' })).toBeNull();
+  await user.click(within(card).getByRole('button', { name: '重新处理' }));
+  expect(calls.some(c => c.url === '/api/v1/documents/d9/process')).toBe(true);
+});
+it('rejects unsupported files before uploading', async () => {
+  const user = userEvent.setup({ applyAccept: false });
+  render(<App/>);
+  await screen.findByText('listed.pdf');
+  await user.upload(document.querySelector('input[type=file]') as HTMLInputElement, new File(['x'], 'slides.pptx'));
+  expect((await screen.findByRole('alert')).textContent).toContain('支持 PDF、DOCX');
+  expect(calls.some(c => c.url.startsWith('/api/v1/documents/upload'))).toBe(false);
+  expect(document.querySelector('input[type=file]')!.getAttribute('accept')).toBe('.pdf,.docx,.md,.markdown,.txt');
+});

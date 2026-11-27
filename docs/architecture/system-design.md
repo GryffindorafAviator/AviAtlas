@@ -3,7 +3,7 @@
 | Field            | Description                  |
 | ---------------- | ---------------------------- |
 | Product          | AviAtlas                     |
-| Version          | 0.5                          |
+| Version          | 0.6                          |
 | Status           | Draft                        |
 | Document Type    | System Design Document       |
 | Last Updated     | 2026-11-27                   |
@@ -1144,7 +1144,8 @@ Final decisions should be documented through component designs and Architecture 
 | Backend Language           | Python                                    | Established direction |
 | Backend Framework          | FastAPI                                   | Established direction |
 | Data Validation            | Pydantic                                  | Established direction |
-| Document Parsing           | Docling                                   | Initial selection     |
+| Document Parsing           | Docling (PDF, DOCX); own Markdown/TXT parser | Initial selection  |
+| OCR                        | RapidOCR via Docling, routed by PDF text layer | Initial selection |
 | Embedding                  | Sentence Transformers                     | Initial selection     |
 | Embedding Model            | paraphrase-multilingual-MiniLM-L12-v2 (BGE family candidate) | Initial selection |
 | Vector Index               | ChromaDB (backend-neutral interface; Milvus planned, see ADR 0001) | Initial selection |
@@ -1616,9 +1617,9 @@ The following decisions require further investigation and detailed design.
 | Product Requirements Document | docs/product/requirements.md        |
 | Data Model Design             | docs/architecture/data-model.md     |
 | Storage Architecture          | docs/architecture/storage-design.md |
-| Document Processing Design    | docs/design/parsing.md              |
+| Document Processing Design    | docs/design/parsing.md (M5)         |
 | Document Ingestion Design     | docs/design/ingestion.md            |
-| Chunking Design               | docs/design/chunking.md             |
+| Chunking Design               | docs/design/chunking.md (M5)        |
 | Retrieval Design              | docs/design/retrieval.md (M2)       |
 | Answering Design              | docs/design/answering.md (M1)       |
 | Provenance Design             | docs/design/provenance.md           |
@@ -1638,3 +1639,4 @@ The following decisions require further investigation and detailed design.
 | 0.3     | 2026-11-27 | Keyword retrieval and rank fusion moved from proposed to initial selections. |
 | 0.4     | 2026-11-27 | Recorded implemented embedding model and SQLite; linked retrieval and answering implementation docs and ADR 0003. |
 | 0.5     | 2026-11-27 | LangGraph and SSE in use for conversation turns; linked conversations implementation doc; ADR 0002 checkpointer amendment. |
+| 0.6     | 2026-11-27 | DOCX/Markdown/TXT, OCR routing, structure-aware chunking; linked parsing and chunking implementation docs. |
