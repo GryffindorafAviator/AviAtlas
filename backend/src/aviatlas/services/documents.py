@@ -42,8 +42,10 @@ class DocumentService:
             raise DocumentNotFound("Document not found.")
         return record
 
-    def list(self, limit: int = 20, offset: int = 0):
+    def list(self, limit: int = 20, offset: int = 0, document_ids: set[UUID] | None = None):
         records = sorted(self.repository.all_records(), key=lambda r: r.uploaded_at, reverse=True)
+        if document_ids is not None:
+            records = [r for r in records if r.id in document_ids]
         return records[offset:offset + limit], len(records)
 
     def enqueue(self, document_id: UUID, retry_only: bool = False) -> DocumentRecord:

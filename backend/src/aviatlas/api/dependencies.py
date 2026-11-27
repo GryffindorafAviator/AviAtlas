@@ -9,6 +9,8 @@ from aviatlas.chunking.greedy_chunker import GreedyChunker
 from aviatlas.retrieval.semantic_retriever import SemanticRetriever
 from aviatlas.services.documents import DocumentService
 from aviatlas.services.qa import QuestionAnsweringService
+from aviatlas.services.collections import CollectionService
+from aviatlas.storage.collection_repository import SQLiteCollectionRepository
 from aviatlas.storage.sqlite_repository import SQLiteDocumentRepository
 from aviatlas.storage.persistent_indexes import PersistentIndexStore
 
@@ -20,6 +22,7 @@ def create_parser():
 class Services:
     documents: DocumentService
     qa: QuestionAnsweringService
+    collections: CollectionService | None = None
 
 _initialization_lock = Lock()
 
@@ -37,6 +40,7 @@ def _build_services() -> Services:
         DocumentService(repository, indexes, data_dir / "uploads", create_parser,
                         GreedyChunker(max_chars=1000), SemanticRetriever),
         QuestionAnsweringService(repository, indexes, AnswerGenerator()),
+        CollectionService(SQLiteCollectionRepository(repository)),
     )
 
     services.documents.resume_deletions()

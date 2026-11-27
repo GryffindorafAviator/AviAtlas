@@ -25,3 +25,7 @@ class GenerationFailed(ServiceError):
 
 class DocumentBusy(ServiceError):
     pass
+
+
+class CollectionNotFound(ServiceError):
+    pass

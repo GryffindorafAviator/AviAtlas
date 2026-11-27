@@ -7,7 +7,9 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Quer
 from fastapi.responses import JSONResponse, FileResponse
 from aviatlas.api.dependencies import Services, get_services
 from aviatlas.api.models import DocumentUploadResponse, ParseResponse, QuestionAnswer, QuestionRequest, DocumentSummary, DocumentListResponse, ProcessingResponse
+from aviatlas.api.models import CollectionInput, CollectionSummary, CollectionListResponse, DocumentCollections
 from aviatlas.services.errors import (
+    CollectionNotFound,
     DocumentBusy, ServiceError, InvalidInput, DocumentNotFound, DocumentNotReady,
     DocumentProcessingFailed, RetrievalUnavailable, GenerationUnavailable, GenerationFailed,
 )
@@ -20,7 +22,7 @@ app = FastAPI(
 )
 
 _ERROR_STATUS = {
-    DocumentBusy: 409, InvalidInput: 400, DocumentNotFound: 404, DocumentNotReady: 400,
+    CollectionNotFound: 404, DocumentBusy: 409, InvalidInput: 400, DocumentNotFound: 404, DocumentNotReady: 400,
     DocumentProcessingFailed: 500, RetrievalUnavailable: 503,
     GenerationUnavailable: 503, GenerationFailed: 502,
 }
@@ -39,8 +41,12 @@ def health_check():
 
 @app.post("/api/v1/documents/upload", response_model=DocumentUploadResponse)
 def upload_document(background_tasks: BackgroundTasks, file: UploadFile = File(...),
-                    auto_process: bool = Query(default=True), services: Services = Depends(get_services)):
+                    auto_process: bool = Query(default=True), collection_id: UUID | None = Query(default=None), services: Services = Depends(get_services)):
+    if collection_id is not None:
+        collection_service(services).get(collection_id)
     record = services.documents.upload(file.filename, file.file)
+    if collection_id is not None:
+        collection_service(services).replace_memberships(record.id, [collection_id])
     if auto_process:
         record = services.documents.enqueue(record.id)
         background_tasks.add_task(services.documents.process_queued, record.id)
@@ -62,26 +68,27 @@ def ask_question(request: QuestionRequest, services: Services = Depends(get_serv
     return asdict(services.qa.ask(request.document_id, request.question, request.top_k))
 
 
-def summarize(record) -> DocumentSummary:
+def summarize(record, collection_ids=None) -> DocumentSummary:
     return DocumentSummary(
         document_id=record.id, filename=record.filename, title=record.title,
         status=record.status, uploaded_at=record.uploaded_at,
         last_updated_at=record.last_updated_at, parsed_at=record.parsed_at,
         indexed_at=record.indexed_at, page_count=record.metadata.get("page_count"),
         blocks_count=len(record.blocks), chunks_count=len(record.chunks),
-        last_error=record.metadata.get("last_error"),
+        last_error=record.metadata.get("last_error"), collection_ids=collection_ids or [],
     )
 
 @app.get("/api/v1/documents", response_model=DocumentListResponse)
 def list_documents(limit: int = Query(default=20, ge=1, le=100),
-                   offset: int = Query(default=0, ge=0), services: Services = Depends(get_services)):
-    records, total = services.documents.list(limit, offset)
-    return DocumentListResponse(items=[summarize(record) for record in records],
+                   offset: int = Query(default=0, ge=0), collection_id: UUID | None = Query(default=None), services: Services = Depends(get_services)):
+    ids = collection_service(services).document_ids(collection_id) if collection_id is not None else None
+    records, total = services.documents.list(limit, offset, document_ids=ids)
+    return DocumentListResponse(items=[summarize(record, services.collections.collection_ids(record.id) if services.collections else []) for record in records],
                                 total=total, limit=limit, offset=offset)
 
 @app.get("/api/v1/documents/{document_id}", response_model=DocumentSummary)
 def document_detail(document_id: UUID, services: Services = Depends(get_services)):
-    return summarize(services.documents.get(document_id))
+    return summarize(services.documents.get(document_id), services.collections.collection_ids(document_id) if services.collections else [])
 
 @app.post("/api/v1/documents/{document_id}/process", response_model=ProcessingResponse, status_code=202)
 def process_document(document_id: UUID, background_tasks: BackgroundTasks,
@@ -111,3 +118,41 @@ def document_file(document_id: UUID, services: Services = Depends(get_services))
     return FileResponse(record.filepath, media_type="application/pdf",
                         filename=record.filename, content_disposition_type="inline",
                         headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+
+def collection_service(services: Services):
+    if services.collections is None:
+        raise HTTPException(status_code=503, detail="Collection storage is unavailable.")
+    return services.collections
+
+
+@app.get("/api/v1/collections", response_model=CollectionListResponse)
+def list_collections(services: Services = Depends(get_services)):
+    return {"items": [asdict(c) for c in collection_service(services).list()]}
+
+
+@app.post("/api/v1/collections", response_model=CollectionSummary, status_code=201)
+def create_collection(request: CollectionInput, services: Services = Depends(get_services)):
+    return asdict(collection_service(services).create(request.name))
+
+
+@app.patch("/api/v1/collections/{collection_id}", response_model=CollectionSummary)
+def rename_collection(collection_id: UUID, request: CollectionInput, services: Services = Depends(get_services)):
+    return asdict(collection_service(services).rename(collection_id, request.name))
+
+
+@app.delete("/api/v1/collections/{collection_id}", status_code=204)
+def delete_collection(collection_id: UUID, services: Services = Depends(get_services)):
+    collection_service(services).delete(collection_id)
+    return Response(status_code=204)
+
+
+@app.get("/api/v1/documents/{document_id}/collections", response_model=DocumentCollections)
+def document_collections(document_id: UUID, services: Services = Depends(get_services)):
+    services.documents.get(document_id)
+    return {"collection_ids": collection_service(services).collection_ids(document_id)}
+
+
+@app.put("/api/v1/documents/{document_id}/collections", response_model=DocumentCollections)
+def update_document_collections(document_id: UUID, request: DocumentCollections, services: Services = Depends(get_services)):
+    return {"collection_ids": collection_service(services).replace_memberships(document_id, request.collection_ids)}

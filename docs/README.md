@@ -43,7 +43,7 @@ The multilingual embedding model and Docling models download on first use. Embed
 
 ## Current limits
 
-Run a single server worker and one application instance per data directory. There is no user authentication, cross-document query, conversation history, or frontend yet. Background processing runs in this server process using FastAPI background tasks; it is not an external worker or durable job queue. The legacy `/documents/parse` endpoint still waits for processing to finish. The chunker preserves entire blocks, so exceptionally long blocks can exceed the embedding model's input window. Citations are requested through prompting; citation correctness and answer quality need evaluation with real books.
+Run a single server worker and one application instance per data directory. There is no user authentication, cross-document query, or conversation history. A local frontend is available; see [frontend setup](../frontend/README.md). Background processing runs in this server process using FastAPI background tasks; it is not an external worker or durable job queue. The legacy `/documents/parse` endpoint still waits for processing to finish. The chunker preserves entire blocks, so exceptionally long blocks can exceed the embedding model's input window. Citations are requested through prompting; citation correctness and answer quality need evaluation with real books.
 
 ## Tests
 
@@ -118,3 +118,21 @@ Upload defaults to `auto_process=true`. To retain the earlier manual workflow, c
 Duplicate processing returns 409. Processing documents cannot be deleted until their task finishes. A queued document can be deleted; its callback will skip the removed record. A failed deletion remains in `deleting` with an error and can be retried with DELETE; startup also resumes incomplete deletions. Retrying processing is allowed only for `failed` records that still have their uploaded file. Re-upload a document if the file is missing.
 
 Restart interruption marks queued/processing records as failed rather than silently continuing them. Retry them explicitly. Keep one server process per data directory. Existing API clients using explicit parse should upload with `auto_process=false` to avoid competing with automatic processing.
+
+
+## Collections
+
+Collection tables are created automatically in the existing SQLite database at startup. Existing documents remain visible under all documents with no collection memberships. A document can belong to multiple collections without copying files or rebuilding vectors.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `POST /api/v1/collections` | Create with JSON `{"name":"Physics"}`; returns 201 |
+| `GET /api/v1/collections` | List collections, timestamps, and document counts |
+| `PATCH /api/v1/collections/{id}` | Rename with JSON `{"name":"Mechanics"}` |
+| `DELETE /api/v1/collections/{id}` | Delete the collection and memberships, retaining documents and indexes |
+| `GET /api/v1/documents?collection_id={id}` | Filter before pagination; `total` is the filtered count |
+| `GET /api/v1/documents/{id}/collections` | Read a document's collection IDs |
+| `PUT /api/v1/documents/{id}/collections` | Atomically replace memberships with `{"collection_ids":["<UUID>"]}`; `[]` removes all memberships |
+| `POST /api/v1/documents/upload?collection_id={id}` | Upload directly into an existing collection |
+
+Document summaries include `collection_ids`. Collection names are trimmed, must contain 1–100 characters, and are unique using SQLite NOCASE collation (ASCII case-insensitive). Unknown collections return 404; invalid or duplicate names return 400 or request validation errors. Deleting a document cascades its memberships. Collection changes do not affect document processing state, evidence, or search indexes. Collections do not yet provide cross-document search or Q&A.

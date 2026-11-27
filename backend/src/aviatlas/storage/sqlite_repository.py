@@ -16,6 +16,7 @@ class SQLiteDocumentRepository:
     @contextmanager
     def connect(self):
         connection = sqlite3.connect(self.database_path, timeout=30)
+        connection.execute("PRAGMA foreign_keys=ON")
         try:
             with connection:
                 yield connection

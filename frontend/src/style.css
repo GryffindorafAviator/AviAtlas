@@ -118,3 +118,47 @@ button:not(.btn) { font-family: var(--font); font-size: 11px; background: linear
   .terminal-footer { font-size: 9px; letter-spacing: 1px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+
+/* Collections reuse the reference's buttons and inset panels. */
+.collection-layout { display: grid; grid-template-columns: 200px minmax(0,1fr); gap: 24px; }
+.collection-sidebar { border-right: 1px solid var(--bezel); padding-right: 18px; min-width: 0; }
+.library-content { min-width: 0; }
+.collection-link.btn { width: 100%; display: flex; justify-content: space-between; gap: 8px; align-items: center; text-align: left; margin-bottom: 8px; padding: 9px 10px; letter-spacing: 0; line-height: 1.5; }
+.collection-link > span { overflow-wrap: anywhere; }
+.collection-link small { flex-shrink: 0; border: 1px solid var(--bezel); border-radius: 3px; padding: 1px 5px; }
+.collection-link.is-active { border-color: var(--amber); box-shadow: inset 0 0 8px #8b500925; color: var(--amber-bright); }
+.collection-create { display: grid; gap: 9px; border-top: 1px solid var(--bezel); margin-top: 20px; padding-top: 15px; }
+.collection-create label { font-size: 11px; }
+.collection-create .input { width: 100%; min-width: 0; font-size: 12px; letter-spacing: 0; padding: 7px; }
+.collection-create .btn { padding: 8px; font-size: 10px; letter-spacing: 0; }
+.collection-sidebar .error { margin-top: 12px; }
+.upload-controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.upload-controls label { font-size: 10px; color: var(--amber-dim); }
+.upload-controls select { max-width: 170px; padding: 6px; border: 1px solid var(--bezel); border-radius: 3px; background: var(--bg); color: var(--ink); font: 11px var(--font); }
+.collection-actions { display: flex; gap: 7px; }
+.collection-actions .btn { padding: 5px 8px; font-size: 10px; letter-spacing: 0; }
+.collection-layout .document-card { flex-wrap: wrap; gap: 12px; }
+.collection-layout .document-actions { width: 100%; flex-wrap: wrap; }
+.collection-layout .document-actions .btn { font-size: 10px; padding: 7px 10px; }
+.document-groups { display: flex; gap: 5px; flex-wrap: wrap; }
+.document-groups > span { font-size: 9px; padding: 3px 5px; border: 1px solid var(--bezel); border-radius: 2px; margin-bottom: 7px; color: var(--amber-dim); overflow-wrap: anywhere; }
+.collection-dialog { margin: auto; width: min(480px,calc(100% - 32px)); padding: 22px; border: 3px solid var(--bezel); border-radius: 8px; background: var(--panel); color: var(--ink); box-shadow: 0 15px 50px #514b3e40; font-family: var(--font); }
+.collection-dialog::backdrop { background: #332b2155; }
+.collection-dialog h2 { margin-top: 0; }
+.collection-dialog p { font-size: 12px; }
+.dialog-document { overflow-wrap: anywhere; }
+.dialog-hint { color: var(--amber-dim); line-height: 1.8; }
+.membership-options { padding: 10px 12px; margin: 15px 0; border: 1px solid var(--bezel); border-radius: 3px; max-height: 280px; overflow-y: auto; }
+.membership-options label { display: flex; gap: 10px; align-items: center; padding: 10px 0; font-size: 13px; cursor: pointer; }
+.membership-options label span { overflow-wrap: anywhere; }
+.membership-options input { accent-color: var(--amber); width: 16px; height: 16px; flex-shrink: 0; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+@media (max-width: 760px) {
+  .collection-layout { grid-template-columns: minmax(0,1fr); gap: 12px; }
+  .collection-sidebar { border-right: 0; border-bottom: 1px solid var(--bezel); padding: 0 0 15px; }
+  .collection-links { display: flex; overflow-x: auto; gap: 8px; }
+  .collection-links .btn { width: auto; flex-shrink: 0; max-width: 240px; }
+  .collection-create { grid-template-columns: minmax(0,1fr) auto; }
+  .collection-create label { grid-column: 1 / -1; }
+  .upload-controls { max-width: 170px; }
+}

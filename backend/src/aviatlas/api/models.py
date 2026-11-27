@@ -68,6 +68,7 @@ class DocumentSummary(BaseModel):
     blocks_count: int
     chunks_count: int
     last_error: str | None = None
+    collection_ids: list[UUID] = Field(default_factory=list)
 
 class DocumentListResponse(BaseModel):
     items: list[DocumentSummary]
@@ -79,3 +80,23 @@ class ProcessingResponse(BaseModel):
     document_id: UUID
     status: str
     message: str = "Document queued. Poll the document detail endpoint for status."
+
+
+class CollectionInput(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class CollectionSummary(BaseModel):
+    collection_id: UUID
+    name: str
+    created_at: datetime
+    updated_at: datetime
+    document_count: int
+
+
+class CollectionListResponse(BaseModel):
+    items: list[CollectionSummary]
+
+
+class DocumentCollections(BaseModel):
+    collection_ids: list[UUID] = Field(default_factory=list, max_length=100)
