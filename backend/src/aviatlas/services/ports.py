@@ -1,8 +1,9 @@
 """Small contracts for interchangeable workflow dependencies."""
+from collections.abc import Collection, Sequence
 from typing import Protocol
 from uuid import UUID
 from aviatlas.parsing.models import Block, ParsedDocument
-from aviatlas.retrieval.models import RetrievalChunk, RetrievalResult
+from aviatlas.retrieval.models import RetrievalChunk, RetrievalResult, RetrievalScope, VectorHit
 from aviatlas.storage.document_registry import DocumentRecord
 from pathlib import Path
 
@@ -20,13 +21,27 @@ class Chunker(Protocol):
     def chunk(self, blocks: list[Block], document_id: UUID | None = None,
               knowledge_base_id: UUID | None = None) -> list[RetrievalChunk]: ...
 
-class SearchIndex(Protocol):
-    def search(self, query: str, top_k: int = 3) -> list[RetrievalResult]: ...
+class Embedder(Protocol):
+    """Turns text into L2-normalized vectors; `model_name` identifies the vector space."""
+    model_name: str
+    def encode(self, texts: Sequence[str]): ...  # -> 2-D array, one row per text
+
+class VectorIndex(Protocol):
+    """Backend-neutral storage for chunk vectors (Chroma today, Milvus later).
+
+    Vectors are derived data: they are written per document, replaced
+    wholesale on reprocessing, and validated against authoritative chunk records.
+    """
+    def replace(self, document_id: UUID, chunk_ids: Sequence[UUID], vectors, *, model_name: str) -> None: ...
+    def delete(self, document_id: UUID) -> None: ...
+    def contains(self, document_id: UUID) -> bool: ...
+    def ensure_ready(self, document_id: UUID, chunk_ids: Sequence[UUID], *, model_name: str) -> None:
+        """Raise DocumentNotReady unless stored vectors match these chunks and model."""
+    def search(self, vector, top_k: int, document_ids: Collection[UUID]) -> list[VectorHit]:
+        """Best hits across the given documents, highest score first."""
+
+class Retriever(Protocol):
+    def search(self, query: str, scope: RetrievalScope, top_k: int = 3) -> list[RetrievalResult]: ...
 
 class Answerer(Protocol):
     def generate(self, question: str, sources: list[RetrievalResult]) -> str: ...
-
-class IndexRepository(Protocol):
-    def get(self, document_id: UUID) -> SearchIndex | None: ...
-    def save(self, document_id: UUID, index: SearchIndex) -> None: ...
-    def delete(self, document_id: UUID) -> None: ...

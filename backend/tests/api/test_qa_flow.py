@@ -12,7 +12,9 @@ from aviatlas.api import main
 from aviatlas.parsing.models import (
     Block, BlockType, BoundingBox, DocumentMetadata, ParsedDocument, ProvenanceItem,
 )
-from aviatlas.retrieval.semantic_retriever import SemanticRetriever
+from aviatlas.retrieval.dense import DenseRetriever
+from aviatlas.retrieval.embedding import SentenceTransformerEmbedder
+from aviatlas.storage.memory_vector_index import InMemoryVectorIndex
 from aviatlas.storage.document_registry import DocumentRegistry
 
 
@@ -30,18 +32,17 @@ def client(tmp_path, monkeypatch):
     from aviatlas.chunking.greedy_chunker import GreedyChunker
     from aviatlas.services.documents import DocumentService
     from aviatlas.services.qa import QuestionAnsweringService
-    from aviatlas.storage.index_store import IndexStore
     repository = DocumentRegistry()
-    indexes = IndexStore()
+    vectors = InMemoryVectorIndex()
+    embedder = SentenceTransformerEmbedder('test-model', Encoder())
     block = Block(id=uuid4(), type=BlockType.PARAGRAPH, order=0,
                   content='植物通过光合作用将光能转化为化学能。', provenance=[
                       ProvenanceItem(page_number=7, bbox=BoundingBox(x0=0,y0=0,x1=1,y1=1))])
     parser = SimpleNamespace(parse=lambda path: ParsedDocument(
         metadata=DocumentMetadata(title='植物', page_count=7), blocks=[block]))
     services = Services(
-        DocumentService(repository, indexes, tmp_path, lambda: parser, GreedyChunker(),
-                        lambda chunks, blocks: SemanticRetriever(chunks, blocks, Encoder())),
-        QuestionAnsweringService(repository, indexes, AnswerGenerator()),
+        DocumentService(repository, vectors, tmp_path, lambda: parser, GreedyChunker(), embedder),
+        QuestionAnsweringService(repository, DenseRetriever(repository, embedder, vectors), AnswerGenerator()),
     )
     main.app.dependency_overrides[get_services] = lambda: services
     try:
@@ -105,18 +106,24 @@ def test_parse_failure_marks_document_failed(client, monkeypatch):
     monkeypatch.setattr(client.parser, 'parse', fail)
     assert client.post('/api/v1/documents/parse', params={'document_id': doc_id}).status_code == 500
     assert client.services.documents.repository.get(doc_id).status == 'failed'
-    assert client.services.documents.indexes.get(client.services.documents.repository.get(doc_id).id) is None
+    assert not client.services.documents.vectors.contains(client.services.documents.repository.get(doc_id).id)
 
 
 def test_semantic_ranking_and_document_scope():
-    from aviatlas.retrieval.models import RetrievalChunk
-    doc_id = uuid4()
-    chunks = [RetrievalChunk(content='岩石', document_id=doc_id),
-              RetrievalChunk(content='光合作用', document_id=doc_id)]
-    hits = SemanticRetriever(chunks, [], Encoder()).search('阳光', top_k=1)
+    from aviatlas.retrieval.models import RetrievalChunk, RetrievalScope
+    repository, vectors = DocumentRegistry(), InMemoryVectorIndex()
+    embedder = SentenceTransformerEmbedder('test-model', Encoder())
+    record = repository.register('book.pdf')
+    record.chunks = [RetrievalChunk(content='岩石', document_id=record.id),
+                     RetrievalChunk(content='光合作用', document_id=record.id)]
+    record.set_status('indexed')
+    vectors.replace(record.id, [c.id for c in record.chunks],
+                    embedder.encode([c.content for c in record.chunks]), model_name='test-model')
+    hits = DenseRetriever(repository, embedder, vectors).search(
+        '阳光', RetrievalScope.for_document(record.id), top_k=1)
     assert len(hits) == 1
-    assert hits[0].chunk_id == chunks[1].id
-    assert hits[0].document_id == doc_id
+    assert hits[0].chunk_id == record.chunks[1].id
+    assert hits[0].document_id == record.id
 
 
 def test_provider_failure_returns_502(client, monkeypatch):

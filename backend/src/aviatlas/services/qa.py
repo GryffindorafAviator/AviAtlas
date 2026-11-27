@@ -7,16 +7,16 @@ from aviatlas.services.errors import (
     InvalidInput, DocumentNotFound, DocumentNotReady, RetrievalUnavailable,
     GenerationUnavailable, GenerationFailed,
 )
+from aviatlas.retrieval.models import RetrievalScope
 from aviatlas.services.models import AnswerResult
-from aviatlas.services.ports import DocumentRepository, Answerer
-from aviatlas.services.ports import IndexRepository
+from aviatlas.services.ports import DocumentRepository, Answerer, Retriever
 
 logger = logging.getLogger(__name__)
 
 class QuestionAnsweringService:
-    def __init__(self, repository: DocumentRepository, indexes: IndexRepository, answerer: Answerer):
+    def __init__(self, repository: DocumentRepository, retriever: Retriever, answerer: Answerer):
         self.repository = repository
-        self.indexes = indexes
+        self.retriever = retriever
         self.answerer = answerer
 
     def ask(self, document_id: UUID, question: str, top_k: int = 3) -> AnswerResult:
@@ -33,10 +33,7 @@ class QuestionAnsweringService:
         if record.status != "indexed":
             raise DocumentNotReady("Document is not ready. Please parse it first.")
         try:
-            index = self.indexes.get(document_id)
-            if index is None:
-                raise DocumentNotReady("Document is not ready. Please parse it first.")
-            results = index.search(query, top_k)
+            results = self.retriever.search(query, RetrievalScope.for_document(document_id), top_k)
         except DocumentNotReady:
             raise
         except Exception as exc:

@@ -10,15 +10,15 @@ from aviatlas.services.collections import CollectionService
 from aviatlas.services.documents import DocumentService
 from aviatlas.storage.collection_repository import SQLiteCollectionRepository
 from aviatlas.storage.sqlite_repository import SQLiteDocumentRepository
-from aviatlas.storage.index_store import IndexStore
+from aviatlas.storage.memory_vector_index import InMemoryVectorIndex
 
 
 @pytest.fixture
 def client(tmp_path):
     repo = SQLiteDocumentRepository(tmp_path / 'documents.sqlite3')
     collections = CollectionService(SQLiteCollectionRepository(repo))
-    docs = DocumentService(repo, IndexStore(), tmp_path / 'uploads',
-                           lambda: None, GreedyChunker(), lambda *args: None)
+    docs = DocumentService(repo, InMemoryVectorIndex(), tmp_path / 'uploads',
+                           lambda: None, GreedyChunker(), None)
     services = Services(docs, SimpleNamespace(), collections)
     app.dependency_overrides[get_services] = lambda: services
     with TestClient(app) as client:

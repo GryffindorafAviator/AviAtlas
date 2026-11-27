@@ -9,12 +9,43 @@ The field names below preserve backwards compatibility with the earlier API whil
 also supporting the newer, clearer chunk/result schema.
 """
 
+from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any, List
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, model_validator
 
 from aviatlas.parsing.models import ProvenanceItem
+
+
+@dataclass(frozen=True)
+class RetrievalScope:
+    """The documents a query may search, resolved by the application layer.
+
+    Collections, metadata filters, and access rules are resolved into explicit
+    document ids before retrieval, so every retrieval strategy (dense, keyword,
+    hybrid) and every index backend applies exactly the same boundary.
+    """
+
+    document_ids: frozenset[UUID]
+
+    @classmethod
+    def of(cls, document_ids: Iterable[UUID]) -> "RetrievalScope":
+        return cls(frozenset(document_ids))
+
+    @classmethod
+    def for_document(cls, document_id: UUID) -> "RetrievalScope":
+        return cls(frozenset({document_id}))
+
+
+@dataclass(frozen=True)
+class VectorHit:
+    """A backend-neutral vector search hit; content is resolved from records."""
+
+    chunk_id: UUID
+    document_id: UUID
+    score: float
 
 
 class RetrievalChunk(BaseModel):
@@ -79,6 +110,8 @@ class RetrievalResult(BaseModel):
     content: str = ""
     matched_text: str | None = None
     score: float = 0.0
+    rank: int | None = None
+    retrieval_method: str | None = None
     section_title: str | None = None
     page_range: tuple[int, int] | None = None
     source_excerpt: str | None = None

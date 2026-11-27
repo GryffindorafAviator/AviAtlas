@@ -59,19 +59,20 @@ Responses integration follows [OpenAI's text generation documentation](https://d
 
 ```text
 HTTP API (api/main.py)
-  ├─ DocumentService: upload → parse → chunk → build index
-  └─ QuestionAnsweringService: retrieve → generate → return evidence
-       ↕ shared document repository and index repository
-Concrete adapters: Docling, GreedyChunker, SemanticRetriever, AnswerGenerator
+  ├─ DocumentService: upload → parse → chunk → embed → write vectors
+  └─ QuestionAnsweringService: retrieve (scoped) → generate → return evidence
+       ↕ shared document repository, Embedder, and VectorIndex
+Concrete adapters: Docling, GreedyChunker, SentenceTransformerEmbedder,
+                   ChromaVectorIndex, DenseRetriever, AnswerGenerator
 ```
 
 `api/dependencies.py` wires the concrete adapters and shared stores together once per process. Routes translate request/response schemas and application errors into HTTP responses; they do not own document processing or question answering logic.
 
-`services/` contains the workflows, their output models, error types, and dependency protocols. It does not import FastAPI or API request/response models. Parser and index factories defer expensive model construction until document processing. Tests replace dependencies through FastAPI overrides or call services directly without HTTP.
+`services/` contains the workflows, their output models, error types, and dependency protocols. It does not import FastAPI or API request/response models. The parser factory and the embedder defer expensive model loading until first use. Tests replace dependencies through FastAPI overrides or call services directly without HTTP.
 
-`storage/sqlite_repository.py` persists document snapshots, including blocks, chunks, provenance, and processing state. `storage/persistent_indexes.py` stores versioned Chroma collections and a SQLite index manifest. The in-memory registry and index store remain available for lightweight tests. Re-parsing invalidates the previous index, and failures prevent stale content from being queried. Uploads enqueue in-process background work. Document locks reject duplicate processing and deletion while processing; interruption recovery allows explicit retry.
+`storage/sqlite_repository.py` persists document snapshots, including blocks, chunks, provenance, and processing state. `storage/chroma_vector_index.py` stores versioned Chroma collections and a SQLite index manifest. The in-memory registry and `InMemoryVectorIndex` remain available for lightweight tests. Re-parsing invalidates the previous index, and failures prevent stale content from being queried. Uploads enqueue in-process background work. Document locks reject duplicate processing and deletion while processing; interruption recovery allows explicit retry.
 
-To change retrieval, supply a matching index factory and index repository implementing the service protocols. The persistent repository currently saves built `SemanticRetriever` vectors and opens them as `PersistentSearchIndex` objects. To change answer generation, supply an `Answerer`. Keep external API schemas in `api/models.py` and workflow outputs in `services/models.py`.
+Retrieval is backend-neutral. A `RetrievalScope` (explicit document ids, resolved by the application from documents, collections, or filters) is passed to a `Retriever`; `DenseRetriever` embeds the query, asks the `VectorIndex` for hits across the scope, and resolves chunk text and provenance from authoritative document records. Results carry `rank` and `retrieval_method` for diagnostics. To change the vector backend (e.g. Milvus), implement `VectorIndex` in `services/ports.py` and add it to `tests/retrieval/test_vector_index_contract.py`. To change answer generation, supply an `Answerer`. Keep external API schemas in `api/models.py` and workflow outputs in `services/models.py`.
 
 ## Persistence and restart verification
 

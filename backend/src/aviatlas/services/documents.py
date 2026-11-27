@@ -9,26 +9,22 @@ from threading import Lock, RLock
 from uuid import UUID
 
 from aviatlas.storage.document_registry import DocumentRecord
-from aviatlas.parsing.models import Block
-from aviatlas.retrieval.models import RetrievalChunk
 from aviatlas.services.errors import InvalidInput, DocumentNotFound, DocumentProcessingFailed, DocumentBusy
 from aviatlas.services.models import ParseResult
-from aviatlas.services.ports import DocumentRepository, Parser, Chunker, SearchIndex
-from aviatlas.services.ports import IndexRepository
+from aviatlas.services.ports import DocumentRepository, Parser, Chunker, Embedder, VectorIndex
 
 logger = logging.getLogger(__name__)
 
 class DocumentService:
-    def __init__(self, repository: DocumentRepository, indexes: IndexRepository,
+    def __init__(self, repository: DocumentRepository, vectors: VectorIndex,
                  upload_dir: Path, parser_factory: Callable[[], Parser],
-                 chunker: Chunker,
-                 index_factory: Callable[[list[RetrievalChunk], list[Block]], SearchIndex]):
+                 chunker: Chunker, embedder: Embedder | None):
         self.repository = repository
-        self.indexes = indexes
+        self.vectors = vectors
         self.upload_dir = upload_dir
         self.parser_factory = parser_factory
         self.chunker = chunker
-        self.index_factory = index_factory
+        self.embedder = embedder
         self._locks: dict[UUID, RLock] = {}
         self._locks_guard = Lock()
 
@@ -97,7 +93,7 @@ class DocumentService:
             record.set_status("deleting")
             self.repository.save(record)
             try:
-                self.indexes.delete(document_id)
+                self.vectors.delete(document_id)
                 if record.filepath:
                     record.filepath.unlink(missing_ok=True)
                 self.repository.delete(document_id)
@@ -107,6 +103,16 @@ class DocumentService:
                 raise DocumentProcessingFailed("Deletion failed. Please retry deletion.") from exc
         finally:
             lock.release()
+
+    def recover_interrupted(self) -> None:
+        # One server process only: any in-flight records belong to the previous run.
+        for record in self.repository.all_records():
+            if record.status in {"queued", "parsing", "indexing"} or (
+                    record.status == "uploaded" and record.filepath is None):
+                self.vectors.delete(record.id)
+                record.set_status("failed")
+                record.update_metadata(last_error="Processing was interrupted. Upload or parse again.")
+                self.repository.save(record)
 
     def resume_deletions(self) -> None:
         for record in self.repository.all_records():
@@ -154,20 +160,21 @@ class DocumentService:
         record.set_status("parsing")
         self.repository.save(record)
         try:
-            self.indexes.delete(document_id)
+            self.vectors.delete(document_id)
             parsed = self.parser_factory().parse(record.filepath)
             chunks = self.chunker.chunk(parsed.blocks, document_id=document_id, knowledge_base_id=None)
             if not chunks:
                 raise ValueError("No searchable text was extracted from the PDF.")
             record.set_status("indexing")
             self.repository.save(record)
-            index = self.index_factory(chunks, parsed.blocks)
+            vectors = self.embedder.encode([chunk.resolved_text for chunk in chunks])
             record.blocks = parsed.blocks
             record.chunks = chunks
             record.title = parsed.metadata.title
             record.update_metadata(**parsed.metadata.model_dump())
             record.parsed_at = datetime.now(timezone.utc)
-            self.indexes.save(document_id, index)
+            self.vectors.replace(document_id, [chunk.id for chunk in chunks], vectors,
+                                 model_name=self.embedder.model_name)
             record.set_status("indexed")
             record.metadata.pop("last_error", None)
             self.repository.save(record)
@@ -176,7 +183,7 @@ class DocumentService:
             record.update_metadata(last_error=f"{type(exc).__name__}: {exc}"[:500])
             self.repository.save(record)
             try:
-                self.indexes.delete(document_id)
+                self.vectors.delete(document_id)
             except Exception:
                 logger.exception("Failed to clean up index: %s", document_id)
             logger.exception("Document processing failed: %s", document_id)

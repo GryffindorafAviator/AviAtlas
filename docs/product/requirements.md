@@ -3,10 +3,10 @@
 | Field | Description |
 |---|---|
 | Product | AviAtlas |
-| Version | 0.1 |
+| Version | 0.2 |
 | Status | Draft |
 | Document Type | Product Requirements Document |
-| Last Updated | 2026-11-24 |
+| Last Updated | 2026-11-27 |
 
 ## 1. Product Overview
 
@@ -150,6 +150,7 @@ Provide a centralized environment for collecting, organizing, and managing knowl
 - FR-LIB-08: Display document processing and indexing status.
 - FR-LIB-09: Support document updates, deletion, and reprocessing.
 - FR-LIB-10: Support index rebuilding and recovery from processing failures.
+- FR-LIB-11: Allow users to inspect, edit, and exclude individual retrieval chunks, with corrections preserved across reprocessing and index rebuilding.
 
 **Expected Outcome**
 
@@ -765,3 +766,4 @@ The following documents will be developed as the project progresses.
 | Version | Date | Description |
 |---|---|---|
 | 0.1 | 2026-11-24 | Initial product vision, functional requirements, product modules, and development roadmap. |
+| 0.2 | 2026-11-27 | Added FR-LIB-11 for chunk inspection, editing, and exclusion. |

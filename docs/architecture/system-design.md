@@ -3,10 +3,10 @@
 | Field            | Description                  |
 | ---------------- | ---------------------------- |
 | Product          | AviAtlas                     |
-| Version          | 0.1                          |
+| Version          | 0.2                          |
 | Status           | Draft                        |
 | Document Type    | System Design Document       |
-| Last Updated     | 2026-11-25                   |
+| Last Updated     | 2026-11-27                   |
 | Related Document | docs/product/requirements.md |
 
 ## 1. Introduction
@@ -679,6 +679,8 @@ Document structure and retrieval structure must remain logically distinct.
 
 Derived data should retain the processing configuration and source version required for reproducibility where practical.
 
+User corrections to derived data, such as edited chunk text or chunks excluded from retrieval, are authoritative data. They must be stored separately from the generated chunks, with references to their source blocks, and reapplied when chunks and indexes are rebuilt. Rebuilding must never silently discard a user correction; a correction whose source blocks no longer exist must be surfaced for review.
+
 ### 7.4 Document Versioning
 
 The architecture should accommodate document versioning and reprocessing.
@@ -1145,17 +1147,17 @@ Final decisions should be documented through component designs and Architecture 
 | Document Parsing           | Docling                                   | Initial selection     |
 | Embedding                  | Sentence Transformers                     | Candidate             |
 | Embedding Model            | BGE family                                | Candidate             |
-| Vector Index               | ChromaDB                                  | Initial selection     |
+| Vector Index               | ChromaDB (backend-neutral interface; Milvus planned, see ADR 0001) | Initial selection |
 | Relational Database        | SQLite / PostgreSQL                       | Pending               |
 | Keyword Retrieval          | BM25                                      | Proposed              |
 | Rank Fusion                | Reciprocal Rank Fusion                    | Proposed              |
 | Reranking                  | Cross-encoder models                      | Candidate             |
 | LLM Integration            | OpenRouter                                | Initial selection     |
-| Agent Orchestration        | Custom workflows / LangGraph              | Deferred              |
+| Agent Orchestration        | LangGraph (conversation and agent orchestration only, see ADR 0002) | Phase 2 |
 | Computational Verification | SymPy and controlled execution tools      | Candidate             |
 | Formal Verification        | Lean                                      | Future exploration    |
-| Frontend                   | React / Next.js                           | Candidate             |
-| Document Reader            | PDF.js                                    | Candidate             |
+| Frontend                   | React + Vite                              | Established direction |
+| Document Reader            | react-pdf (PDF.js)                        | Established direction |
 | Streaming                  | Server-Sent Events                        | Proposed              |
 | Testing                    | pytest                                    | Established direction |
 | Graph Storage              | Neo4j or alternative graph representation | Deferred              |
@@ -1631,3 +1633,4 @@ The following decisions require further investigation and detailed design.
 | Version | Date       | Description                                                                                                                                                 |
 | ------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0.1     | 2026-11-25 | Initial system architecture, component responsibilities, core pipelines, storage direction, API principles, reliability, security, and evaluation strategy. |
+| 0.2     | 2026-11-27 | Recorded vector index (ADR 0001) and LangGraph (ADR 0002) decisions; aligned frontend selections with the implementation; added user corrections to derived data as authoritative data. |
