@@ -23,6 +23,7 @@ from aviatlas.services.models import (
 from aviatlas.services.ports import ConversationalAnswerer, Retriever
 from aviatlas.services.qa import elapsed, new_log, record_log, retrieve_evidence, validate_question
 from aviatlas.storage.qa_log_repository import source_reference
+from aviatlas.verification.claims import checks
 from aviatlas.services.scope import ScopeResolver
 from aviatlas.storage.conversation_repository import SQLiteConversationRepository
 
@@ -110,7 +111,8 @@ class Turn:
                     self._events.put(TurnEvent("delta", {"text": chunk["text"]}))
             segments = state["segments"]
             message = finish(join_segments(segments), "complete",
-                             segments=[s.__dict__ for s in segments], invalid_citations=state["invalid_citations"])
+                             segments=[s.__dict__ for s in segments], invalid_citations=state["invalid_citations"],
+                             checks=checks(segments, {n: s.content for n, s in enumerate(sources, 1)}))
             self._events.put(TurnEvent("done", {"message": message}))
         except Stopped:
             partial = split_segments("".join(parts), mode)

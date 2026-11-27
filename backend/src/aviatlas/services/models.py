@@ -63,6 +63,8 @@ class AnswerResult:
     invalid_citations: list[int] = field(default_factory=list)
     document_ids: list[UUID] = field(default_factory=list)
     skipped_document_ids: list[UUID] = field(default_factory=list)
+    # Local citation checks (no model call): claims with hints.
+    checks: list[dict] = field(default_factory=list)
 
 
 MessageRole = Literal["user", "assistant"]

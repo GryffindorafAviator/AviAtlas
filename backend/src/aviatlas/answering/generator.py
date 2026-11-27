@@ -120,6 +120,10 @@ class AnswerGenerator:
                 except Exception as exc:
                     raise AnswerGenerationError("Answer generation was interrupted. Please retry.") from exc
 
+    def judge(self, instructions: str, payload: str) -> str:
+        """One plain request, used by verification."""
+        return self._call(instructions, payload, "Verification failed. Check provider configuration and retry.")
+
     def condense(self, question: str, history: Sequence[dict]) -> str:
         """Turn a follow-up question into a standalone retrieval query."""
         payload = json.dumps({"conversation": list(history), "latest_question": question}, ensure_ascii=False)

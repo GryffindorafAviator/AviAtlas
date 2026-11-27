@@ -8,6 +8,7 @@ from aviatlas.answering.segments import invalid_citations, join_segments, split_
 from aviatlas.retrieval.hybrid import METHODS, RetrievalRun
 from aviatlas.retrieval.models import RetrievalResult
 from aviatlas.storage.qa_log_repository import QALog, source_reference
+from aviatlas.verification.claims import checks
 from aviatlas.services.errors import (
     ServiceError, InvalidInput, DocumentNotFound, DocumentNotReady, RetrievalUnavailable,
     GenerationUnavailable, GenerationFailed,
@@ -162,7 +163,8 @@ class QuestionAnsweringService:
             log.answer, log.segments, log.invalid_citations = join_segments(segments), [s.__dict__ for s in segments], invalid or []
             return AnswerResult(single, question, join_segments(segments), sources,
                                 datetime.now(timezone.utc), mode, segments, invalid or [],
-                                resolved.document_ids, resolved.skipped_document_ids)
+                                resolved.document_ids, resolved.skipped_document_ids,
+                                checks(segments, {n: s.content for n, s in enumerate(sources, 1)}))
 
         try:
             sources = retrieve_evidence(self.retriever, self.resolver, resolved, retrieval_query, top_k)

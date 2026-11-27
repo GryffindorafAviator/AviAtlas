@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ScoreBadges } from './ScoreBadges';
+import { LocalChecks, VerificationPanel } from './Verification';
 import {
   request, sameScope, sourcePage, splitSegments, streamEvents,
   type AnswerMode, type Conversation, type ConversationDetail, type Message, type Scope, type Segment, type Selection, type Source,
@@ -40,7 +41,7 @@ function AnswerBody({ message }: { message: Message }) {
   </div>;
 }
 
-function AssistantMessage({ message: m, question, fallbackName, canOpen, onOpenSource }: { message: Message; question?: Message; fallbackName?: string; canOpen: boolean; onOpenSource: Props['onOpenSource'] }) {
+function AssistantMessage({ message: m, question, fallbackName, canOpen, onOpenSource, conversationId }: { message: Message; question?: Message; fallbackName?: string; canOpen: boolean; onOpenSource: Props['onOpenSource']; conversationId: string | null }) {
   const sources = m.sources ?? [];
   const rewritten = m.search_query && question && !m.search_query.startsWith(question.content);
   return <>
@@ -48,6 +49,7 @@ function AssistantMessage({ message: m, question, fallbackName, canOpen, onOpenS
     {rewritten && <p className="search-query">检索：{m.search_query}</p>}
     {m.status === 'streaming' && !m.content && <p className="thinking">✧ {m.search_query ? '正在生成回答…' : '正在检索文档…'}</p>}
     <AnswerBody message={m}/>
+    {m.status !== 'streaming' && <LocalChecks checks={m.checks ?? []}/>}
     {m.status === 'stopped' && <p className="notice">已停止生成。</p>}
     {m.status === 'failed' && <p className="error">回答失败：{m.error || '请重试。'}</p>}
     {!!m.skipped_document_ids?.length && <p className="notice">有 {m.skipped_document_ids.length} 份文档尚未处理完成，未参与检索。</p>}
@@ -56,6 +58,7 @@ function AssistantMessage({ message: m, question, fallbackName, canOpen, onOpenS
       const p = sourcePage(s);
       return <details className="panel-inset" key={`${s.chunk_id}-${index}`}><summary><span className="source-number">{s.citation ?? index + 1}</span><span className="source-name">{s.document_name || fallbackName || '文档'}</span><span>{p ? `第 ${p} 页` : '无页码'}</span></summary>{s.section_title && <p className="source-section">§ {s.section_title}</p>}<p>{s.content}</p><ScoreBadges source={s}/>{p ? <button className="btn text-button" disabled={!canOpen} onClick={() => onOpenSource(s, p)}>查看第 {p} 页 ↗</button> : !!s.block_ids?.length && <button className="btn text-button" disabled={!canOpen} onClick={() => onOpenSource(s)}>定位原文 ↗</button>}</details>;
     })}</div>}
+    {conversationId && ['complete', 'stopped'].includes(m.status) && !!m.content && !!sources.length && <VerificationPanel key={m.message_id} conversationId={conversationId} message={m} onOpenSource={onOpenSource} canOpen={canOpen}/>}
   </>;
 }
 
@@ -174,7 +177,7 @@ export function Assistant({ scope, title, subtitle, status, disabledNotice, plac
             <div className="question panel-inset">{m.content}</div>
           </article>
         : <article className="exchange" key={m.message_id}>
-            <AssistantMessage message={m} question={messages[i - 1]} fallbackName={fallbackName} canOpen={canOpen} onOpenSource={onOpenSource}/>
+            <AssistantMessage message={m} question={messages[i - 1]} fallbackName={fallbackName} canOpen={canOpen} onOpenSource={onOpenSource} conversationId={activeId}/>
           </article>)}
       {asking && !messages.some(m => m.status === 'streaming') && <p className="thinking">✧ 正在检索文档并生成回答…</p>}<div ref={bottom}/>
     </div>

@@ -118,7 +118,7 @@ def conversation_service(services: Services):
 def conversation_summary(record) -> ConversationSummary:
     return ConversationSummary(**asdict(record))
 
-def message_output(message) -> MessageOutput:
+def message_output(message, verification: dict | None = None) -> MessageOutput:
     payload = message.payload
     sources = [CitedSource(**source.model_dump(), citation=n) for n, source in message.sources]
     return MessageOutput(
@@ -127,7 +127,8 @@ def message_output(message) -> MessageOutput:
         segments=payload.get("segments") or [], sources=sources,
         invalid_citations=payload.get("invalid_citations") or [], search_query=payload.get("search_query"),
         removed_source_count=max(0, (payload.get("source_count") or 0) - len(sources)),
-        skipped_document_ids=payload.get("skipped_document_ids") or [], error=payload.get("error"))
+        skipped_document_ids=payload.get("skipped_document_ids") or [], error=payload.get("error"),
+        checks=payload.get("checks") or [], verification=verification)
 
 @app.post("/api/v1/conversations", response_model=ConversationSummary, status_code=201)
 def create_conversation(request: ConversationCreate, services: Services = Depends(get_services)):
@@ -141,7 +142,9 @@ def list_conversations(limit: int = Query(default=100, ge=1, le=500), services: 
 def conversation_detail(conversation_id: UUID, services: Services = Depends(get_services)):
     conversations = conversation_service(services)
     record = conversations.get(conversation_id)
-    return ConversationDetail(**asdict(record), messages=[message_output(m) for m in conversations.messages(conversation_id)])
+    messages = conversations.messages(conversation_id)
+    reports = services.verification.latest([m.message_id for m in messages]) if services.verification else {}
+    return ConversationDetail(**asdict(record), messages=[message_output(m, reports.get(m.message_id)) for m in messages])
 
 @app.patch("/api/v1/conversations/{conversation_id}", response_model=ConversationSummary)
 def rename_conversation(conversation_id: UUID, request: ConversationRename, services: Services = Depends(get_services)):
@@ -394,3 +397,11 @@ def delete_log(log_id: UUID, services: Services = Depends(get_services)):
 def clear_logs(services: Services = Depends(get_services)):
     log_service(services).clear()
     return Response(status_code=204)
+
+
+@app.post("/api/v1/conversations/{conversation_id}/messages/{message_id}/verification")
+def verify_answer(conversation_id: UUID, message_id: UUID, services: Services = Depends(get_services)):
+    """Check each claim of the answer against the excerpts it cites (one model call)."""
+    if services.verification is None:
+        raise HTTPException(status_code=503, detail="Verification is unavailable.")
+    return services.verification.verify(conversation_id, message_id)

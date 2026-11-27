@@ -34,6 +34,7 @@ export type Message = {
   message_id: string; role: 'user' | 'assistant'; content: string; status: MessageStatus; created_at: string;
   mode?: AnswerMode | null; selection?: Selection | null; segments?: Segment[]; sources?: Source[]; invalid_citations?: number[];
   search_query?: string | null; removed_source_count?: number; skipped_document_ids?: string[]; error?: string | null;
+  checks?: ClaimCheck[]; verification?: VerificationReport | null;
 };
 export type Conversation = { conversation_id: string; title: string | null; document_ids: string[] | null; collection_id: string | null; created_at: string; updated_at: string; message_count: number };
 export type ConversationDetail = Conversation & { messages: Message[] };
@@ -99,3 +100,23 @@ export type LogSource = { citation: number; document_id: string | null; document
 export type LogDetail = LogSummary & { search_query: string | null; scope: Record<string, unknown>; document_ids: string[]; skipped_document_ids: string[]; sources: LogSource[]; answer: string; segments: Segment[]; invalid_citations: number[]; conversation_id: string | null };
 /** A document reprocessing in the background still serves its previous index. */
 export const canAsk = (d: Doc) => d.status === 'indexed' || (['queued', 'parsing', 'indexing'].includes(d.status) && d.chunks_count > 0);
+
+export type ClaimCheck = { claim: number; text: string; hints: string[] };
+export type VerificationStatus = 'supported' | 'conflicting' | 'insufficient_evidence' | 'unverified';
+export type VerifiedClaim = {
+  index: number; text: string; source_type: string; citations: number[]; hints: string[]; status: VerificationStatus;
+  model_verdict: string | null; reason: string | null; notes: string[]; suggested_citations: number[];
+  evidence: { citation: number; quote: string; document_name: string | null; page_range: [number, number] | null }[];
+};
+export type VerificationReport = {
+  verification_id: string; message_id: string; method: string; model: string | null; created_at: string;
+  claims: VerifiedClaim[]; summary: Record<VerificationStatus, number>; unchecked_segments: number; limitations: string[];
+};
+/** Readable text for a local check hint such as `number_not_in_source:41.0`. */
+export function hintText(hint: string) {
+  const [kind, detail] = hint.split(':');
+  if (kind === 'uncited') return '这句话没有标注来源';
+  if (kind === 'unknown_citation') return `引用了不存在的来源 ${detail.split(',').map(n => `[${n}]`).join(' ')}`;
+  if (kind === 'number_not_in_source') return `数字 ${detail.split(',').join('、')} 没有出现在所引原文中`;
+  return hint;
+}

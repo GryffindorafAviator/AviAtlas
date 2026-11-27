@@ -1,5 +1,13 @@
 # Changelog
 
+## M7 — Citation verification
+
+- Every answer gets local checks: uncited sentences, unknown citation numbers, numbers absent from the cited text (自动检查).
+- 核查引用: one model call judges each claim against the excerpts it cites; statuses supported / conflicting / insufficient evidence / unverified.
+- A verdict counts only if the model's quote is found in the cited excerpt; failures are errors, never results.
+- Reports are stored per answer and shown with the conversation; model-supplied segments are reported as not checked.
+- Migration: table created on startup.
+
 ## M6 — Chunk corrections, safe rebuilding, Q&A logs
 
 - Reader 分块 tab: view, edit, exclude, and restore chunks; edits re-embed only that chunk.

@@ -261,3 +261,22 @@ button:not(.btn) { font-family: var(--font); font-size: 11px; background: linear
 .log-facts dt { color: var(--amber-dim); }
 .log-facts dd { margin: 0; overflow-wrap: anywhere; }
 .log-sources li { padding: 8px 10px; }
+.local-checks { font-size: 11px; margin: 4px 0 10px; color: var(--amber-dim); }
+.local-checks ul { margin: 6px 0 0; padding-left: 18px; }
+.local-checks li { margin-bottom: 4px; }
+.local-checks q { color: var(--amber); }
+.check-hint { display: block; color: var(--red-warn); }
+.verification { margin-top: 12px; border-top: 1px dashed var(--bezel); padding-top: 10px; }
+.verification-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.verification-head .btn { padding: 5px 10px; font-size: 10px; letter-spacing: 0; }
+.verification-summary { display: flex; gap: 6px; flex-wrap: wrap; }
+.verdict { font-size: 10px; border: 1px solid var(--bezel); border-radius: 3px; padding: 1px 6px; white-space: nowrap; }
+.verdict-supported { color: var(--green-ok); border-color: var(--green-ok); }
+.verdict-conflicting { color: var(--red-warn); border-color: var(--red-warn); }
+.verdict-insufficient_evidence { color: var(--amber-bright); border-color: var(--amber); }
+.verdict-unverified { color: var(--amber-dim); }
+.verified-claims { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 10px; font-size: 12px; }
+.claim-reason, .claim-note { margin: 4px 0 0; font-size: 11px; color: var(--amber-dim); }
+.claim-evidence { margin: 6px 0 0; padding: 4px 8px; border-left: 3px solid var(--green-ok); font-size: 11px; }
+.claim-evidence .btn { display: block; margin-top: 2px; }
+.verification-limits { text-align: left; }

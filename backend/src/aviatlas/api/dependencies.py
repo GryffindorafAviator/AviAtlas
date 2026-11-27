@@ -16,6 +16,8 @@ from aviatlas.services.scope import ScopeResolver
 from aviatlas.services.collections import CollectionService
 from aviatlas.services.conversations import ConversationService
 from aviatlas.services.corrections import CorrectionService
+from aviatlas.services.verification import VerificationService
+from aviatlas.storage.verification_repository import SQLiteVerificationRepository
 from aviatlas.storage.correction_repository import SQLiteCorrectionRepository
 from aviatlas.storage.qa_log_repository import SQLiteQALogRepository
 from aviatlas.storage.conversation_repository import SQLiteConversationRepository
@@ -42,6 +44,7 @@ class Services:
     conversations: ConversationService | None = None
     corrections: CorrectionService | None = None
     logs: SQLiteQALogRepository | None = None
+    verification: VerificationService | None = None
 
 _initialization_lock = Lock()
 
@@ -61,6 +64,7 @@ def _build_services() -> Services:
     resolver = ScopeResolver(repository, collections)
     answerer = AnswerGenerator()
     corrections, logs = SQLiteCorrectionRepository(repository), SQLiteQALogRepository(repository)
+    conversations = ConversationService(SQLiteConversationRepository(repository), retriever, answerer, resolver, logs=logs)
     documents = DocumentService(repository, vectors, data_dir / "uploads", create_parser,
                                 StructuredChunker(max_chars=1000), embedder, keywords, corrections=corrections)
     services = Services(
@@ -68,9 +72,10 @@ def _build_services() -> Services:
         QuestionAnsweringService(repository, retriever, answerer, resolver, logs=logs),
         collections,
         SearchService(retriever, resolver),
-        ConversationService(SQLiteConversationRepository(repository), retriever, answerer, resolver, logs=logs),
+        conversations,
         CorrectionService(documents, corrections),
         logs,
+        VerificationService(conversations, SQLiteVerificationRepository(repository), answerer),
     )
 
     services.documents.repair_records()

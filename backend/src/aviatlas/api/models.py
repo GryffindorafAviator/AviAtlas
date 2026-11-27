@@ -177,6 +177,7 @@ class SourceAwareAnswer(BaseModel):
     document_ids: list[UUID]
     skipped_document_ids: list[UUID]
     created_at: datetime | None = None
+    checks: list[dict] = Field(default_factory=list)
 
 
 class CitedSource(RetrievalResult):
@@ -208,6 +209,9 @@ class MessageOutput(BaseModel):
     removed_source_count: int = 0
     skipped_document_ids: list[UUID] = Field(default_factory=list)
     error: str | None = None
+    # Local citation checks saved with the answer, and the newest verification report, if any.
+    checks: list[dict] = Field(default_factory=list)
+    verification: dict | None = None
 
 
 class ConversationCreate(ScopeInput):
