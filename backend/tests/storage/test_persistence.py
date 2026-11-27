@@ -41,7 +41,7 @@ def setup_services(directory, monkeypatch):
     parser = SimpleNamespace(parse=parse)
     docs = DocumentService(repo, vectors, directory / 'uploads', lambda: parser, GreedyChunker(), embedder)
     qa = QuestionAnsweringService(repo, DenseRetriever(repo, embedder, vectors),
-                                  SimpleNamespace(generate=lambda query, sources: sources[0].content+' [1]'))
+                                  SimpleNamespace(generate=lambda query, sources, **kwargs: sources[0].content+' [1]'))
     return docs, qa, parser
 
 
@@ -159,7 +159,7 @@ else:
  from aviatlas.api.dependencies import get_services
  services=get_services()
  services.qa.retriever.embedder._encoder=Encoder()
- services.qa.answerer=SimpleNamespace(generate=lambda q,s:'answer [1]')
+ services.qa.answerer=SimpleNamespace(generate=lambda q,s,**k:'answer [1]')
  result=services.qa.ask(UUID(sys.argv[3]),'question')
  print(json.dumps({'answer':result.answer,'pages':result.sources[0].page_range,'content':result.sources[0].content}))
 ''')

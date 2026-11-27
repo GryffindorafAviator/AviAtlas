@@ -9,7 +9,8 @@ from aviatlas.chunking.greedy_chunker import GreedyChunker
 from aviatlas.retrieval.dense import DenseRetriever
 from aviatlas.retrieval.embedding import SentenceTransformerEmbedder
 from aviatlas.services.documents import DocumentService
-from aviatlas.services.qa import QuestionAnsweringService
+from aviatlas.services.qa import QuestionAnsweringService, SearchService
+from aviatlas.services.scope import ScopeResolver
 from aviatlas.services.collections import CollectionService
 from aviatlas.storage.collection_repository import SQLiteCollectionRepository
 from aviatlas.storage.sqlite_repository import SQLiteDocumentRepository
@@ -24,6 +25,7 @@ class Services:
     documents: DocumentService
     qa: QuestionAnsweringService
     collections: CollectionService | None = None
+    search: SearchService | None = None
 
 _initialization_lock = Lock()
 
@@ -37,11 +39,15 @@ def _build_services() -> Services:
     repository = SQLiteDocumentRepository(data_dir / "documents.sqlite3")
     vectors = ChromaVectorIndex(repository, data_dir / "chroma")
     embedder = SentenceTransformerEmbedder()
+    retriever = DenseRetriever(repository, embedder, vectors)
+    collections = CollectionService(SQLiteCollectionRepository(repository))
+    resolver = ScopeResolver(repository, collections)
     services = Services(
         DocumentService(repository, vectors, data_dir / "uploads", create_parser,
                         GreedyChunker(max_chars=1000), embedder),
-        QuestionAnsweringService(repository, DenseRetriever(repository, embedder, vectors), AnswerGenerator()),
-        CollectionService(SQLiteCollectionRepository(repository)),
+        QuestionAnsweringService(repository, retriever, AnswerGenerator(), resolver),
+        collections,
+        SearchService(retriever, resolver),
     )
 
     services.documents.recover_interrupted()

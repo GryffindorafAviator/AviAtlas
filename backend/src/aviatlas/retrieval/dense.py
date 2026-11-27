@@ -34,6 +34,7 @@ class DenseRetriever:
             pages = [p.page_number for p in provenance]
             results.append(RetrievalResult(
                 query=query, document_id=hit.document_id, chunk_id=chunk.id,
+                document_name=records[hit.document_id].filename,
                 content=chunk.resolved_text, score=hit.score, rank=rank,
                 retrieval_method=self.method, provenance=provenance,
                 section_title=chunk.section_title,

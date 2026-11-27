@@ -41,9 +41,22 @@ Answers use `[1]`, `[2]`, etc. to refer to the ordered `sources` array. Each sou
 
 The multilingual embedding model and Docling models download on first use. Embeddings run locally; the question and retrieved excerpts are sent to the configured Responses-compatible provider, with `store=False`. Missing model configuration returns 503; provider failures return 502.
 
+## Search and library questions
+
+Both endpoints take an optional scope: `document_ids` (every listed document must be indexed), `collection_id`, or neither for the whole library. Collection and library scopes search the indexed documents and list the others in `skipped_document_ids`.
+
+- `POST /api/v1/search` — `{"query": "...", "collection_id": "<uuid>", "top_k": 10}`. Returns ranked chunks with `document_name`, page range, provenance, `score`, `rank`, and `retrieval_method`. Search does not call the answer model, so it works without provider configuration.
+- `POST /api/v1/ask` — `{"question": "...", "document_ids": ["<uuid>"], "mode": "grounded", "selection": {"text": "...", "page_number": 3}, "top_k": 5}`.
+  - `mode: "grounded"` answers only from evidence; with no evidence the model is not called.
+  - `mode: "open"` also allows the model's own explanations. The answer is returned as `segments` with `source_type` `library`, `model`, or `unlabeled` (an open-mode answer the model did not mark). These labels are the model's account of its sources, not verification.
+  - `selection` is text the reader selected; it is added to the retrieval query and given to the model as context.
+  - `invalid_citations` lists citation numbers in the answer that match no returned source.
+
+`/api/v1/documents/ask` remains for single-document grounded answers.
+
 ## Current limits
 
-Run a single server worker and one application instance per data directory. There is no user authentication, cross-document query, or conversation history. A local frontend is available; see [frontend setup](../frontend/README.md). Background processing runs in this server process using FastAPI background tasks; it is not an external worker or durable job queue. The legacy `/documents/parse` endpoint still waits for processing to finish. The chunker preserves entire blocks, so exceptionally long blocks can exceed the embedding model's input window. Citations are requested through prompting; citation correctness and answer quality need evaluation with real books.
+Run a single server worker and one application instance per data directory. There is no user authentication or conversation history; each question is answered independently. A local frontend is available; see [frontend setup](../frontend/README.md). Background processing runs in this server process using FastAPI background tasks; it is not an external worker or durable job queue. The legacy `/documents/parse` endpoint still waits for processing to finish. The chunker preserves entire blocks, so exceptionally long blocks can exceed the embedding model's input window. Citations are requested through prompting; citation correctness and answer quality need evaluation with real books.
 
 ## Tests
 

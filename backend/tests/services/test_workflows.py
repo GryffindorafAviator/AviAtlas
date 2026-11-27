@@ -30,7 +30,7 @@ def test_services_share_index_and_invalidate_it_on_failed_reparse(tmp_path):
     parser = SimpleNamespace(parse=lambda path: parsed)
     docs = DocumentService(repository, vectors, tmp_path, lambda: parser, GreedyChunker(), embedder)
     qa = QuestionAnsweringService(repository, DenseRetriever(repository, embedder, vectors),
-                                 SimpleNamespace(generate=lambda question, sources: 'answer [1]'))
+                                 SimpleNamespace(generate=lambda question, sources, **kwargs: 'answer [1]'))
     record = docs.upload('test.pdf', BytesIO(b'%PDF'))
     assert record.filepath.read_bytes() == b'%PDF'
     docs.parse(record.id)

@@ -106,6 +106,7 @@ class RetrievalResult(BaseModel):
 
     query: str = ""
     document_id: UUID | None = None
+    document_name: str | None = None
     chunk_id: UUID | None = None
     content: str = ""
     matched_text: str | None = None

@@ -162,3 +162,31 @@ button:not(.btn) { font-family: var(--font); font-size: 11px; background: linear
   .collection-create label { grid-column: 1 / -1; }
   .upload-controls { max-width: 170px; }
 }
+
+/* Library views, search, and source-aware answers */
+.library-tabs { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.library-tabs .btn { padding: 6px 14px; font-size: 11px; }
+.library-tabs .btn.is-active, .mode-toggle .btn.is-active { color: var(--amber-bright); border-color: var(--amber); background: var(--bg); }
+.tab-scope { margin-left: auto; font-size: 11px; color: var(--amber-dim); }
+.search-form { display: flex; gap: 10px; }
+.search-form .input { flex: 1; min-width: 0; font-size: 13px; }
+.search-results { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.search-hit { padding: 14px; }
+.search-hit-meta { display: flex; align-items: center; gap: 9px; font-size: 11px; color: var(--amber-dim); }
+.search-hit-meta .source-name { color: var(--amber-bright); }
+.search-hit p { font-size: 12px; line-height: 1.8; margin: 10px 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+.search-hit .text-button, .selection-actions .text-button { font-size: 10px; padding: 6px 8px; letter-spacing: 0; }
+.library-assistant { display: flex; height: calc(100vh - 420px); min-height: 480px; border: 2px solid var(--bezel); border-radius: 4px; overflow: hidden; }
+.library-assistant .assistant { flex: 1; border-left: 0; }
+.mode-toggle { display: flex; flex-shrink: 0; gap: 6px; padding: 9px 15px; background: var(--bg); border-bottom: 1px solid var(--bezel); }
+.mode-toggle .btn { padding: 5px 10px; font-size: 10px; letter-spacing: 0; }
+.segment { margin: 12px 0; padding: 4px 12px; border-left: 3px dashed var(--amber-dim); background: var(--bg); }
+.segment-unlabeled { border-left-style: dotted; }
+.segment-label { font-size: 10px; letter-spacing: 1px; color: var(--amber-dim); margin-top: 8px; }
+.citation-warning { color: var(--red-warn); }
+.quoted { margin: 0 0 8px 20px; padding: 8px 10px; font-size: 11px; line-height: 1.7; border-left: 3px solid var(--amber-dim); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; }
+.selection-chip { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; margin-bottom: 10px; }
+.selection-chip > div:first-child { flex: 1; min-width: 0; }
+.selection-chip p { font-size: 11px; line-height: 1.6; margin: 4px 0 0; max-height: 64px; overflow: auto; overflow-wrap: anywhere; }
+.selection-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.reader-hint { flex-shrink: 0; margin: 0; padding: 6px 14px; font-size: 10px; color: var(--amber-dim); border-top: 1px solid var(--bezel); }

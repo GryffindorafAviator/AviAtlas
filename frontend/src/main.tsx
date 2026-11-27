@@ -1,7 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { request, type Doc, type Collection } from './api';
+import { request, type Doc, type Collection, type Source } from './api';
+import { Assistant } from './Assistant';
 import { CollectionDialog } from './CollectionDialog';
 import { Reader } from './Reader';
+import { SearchPanel } from './SearchPanel';
+type Tab = 'documents' | 'search' | 'ask';
+const tabs: [Tab, string][] = [['documents', '文档'], ['search', '搜索'], ['ask', '问答']];
 const statusNames: Record<string, string> = { uploaded: '待处理', queued: '排队中', parsing: '解析中', indexing: '建立索引', indexed: '可提问', failed: '处理失败', deleting: '删除中' };
 const busy = (status: string) => ['queued', 'parsing', 'indexing', 'deleting'].includes(status);
 export function App() {
@@ -16,10 +20,24 @@ export function App() {
   const [collectionError, setCollectionError] = useState('');
   const [newName, setNewName] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [tab, setTab] = useState<Tab>('documents');
+  const [openPage, setOpenPage] = useState(1), [openedDoc, setOpenedDoc] = useState<Doc | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const activeCollection = collections.find(c => c.collection_id === collectionId);
   const listUrl = `/documents?limit=20&offset=${offset}${collectionId ? `&collection_id=${collectionId}` : ''}`;
-  const current = docs.find(d => d.document_id === selected);
+  const current = docs.find(d => d.document_id === selected) ?? (openedDoc?.document_id === selected ? openedDoc : undefined);
+  const scope = collectionId ? { collection_id: collectionId } : {};
+  const scopeName = activeCollection?.name || '全部文档';
+  function openDocument(id: string | null, page = 1) { setOpenPage(page); setSelected(id); }
+  async function openSource(source: Source, page?: number) {
+    const id = source.document_id;
+    if (!id) return;
+    if (!docs.some(d => d.document_id === id)) {
+      try { setOpenedDoc(await request<Doc>(`/documents/${id}`)); }
+      catch (e) { setError((e as Error).message); return; }
+    }
+    openDocument(id, page ?? 1);
+  }
   useEffect(() => {
     let active = true, timer: ReturnType<typeof setTimeout>;
     async function poll() {
@@ -84,7 +102,7 @@ export function App() {
   }
   return <div className="terminal">
     <header className="terminal-header">
-      <a className="brand" href="#" onClick={() => setSelected(null)}>AVIATLAS // PERSONAL KNOWLEDGE LIBRARY</a>
+      <a className="brand" href="#" onClick={() => openDocument(null)}>AVIATLAS // PERSONAL KNOWLEDGE LIBRARY</a>
       <h1>AVIATLAS</h1>
       <p>阅读、提问，并在原文中找到依据。</p>
     </header>
@@ -102,7 +120,7 @@ export function App() {
       </aside>}
       <section className="library-content">
       <div className="page-heading">
-        <div>{current && <button className="btn back-button" onClick={() => setSelected(null)}>← 返回图书馆</button>}
+        <div>{current && <button className="btn back-button" onClick={() => openDocument(null)}>← 返回图书馆</button>}
           <h2>{current ? '// DOCUMENT' : '// LIBRARY'}</h2>
           {current ? <p className="document-title">{current.filename}</p> : <p>{activeCollection ? activeCollection.name : "我的图书馆"} · 上传 PDF，打开阅读并提问。</p>}
         </div>
@@ -110,12 +128,20 @@ export function App() {
         <input className="sr-only" ref={input} type="file" accept="application/pdf,.pdf" onChange={e => void upload(e.target.files?.[0])}/>
       </div>
       {error && <div className="panel-inset error banner" role="alert">{error} <button className="btn" onClick={() => void refresh().then(() => setError('')).catch(e => setError(e.message))}>重新连接</button></div>}
-      {current ? <Reader key={current.document_id} doc={current}/> : <>
+      {!current && <div className="library-tabs" role="tablist" aria-label="图书馆视图">{tabs.map(([id, label]) => <button key={id} role="tab" id={`tab-${id}`} aria-selected={tab === id} className={`btn ${tab === id ? 'is-active' : ''}`} onClick={() => setTab(id)}>{label}</button>)}<span className="tab-scope">范围：{scopeName}</span></div>}
+      {current ? <Reader key={current.document_id} doc={current} initialPage={openPage}/>
+      : tab === 'search' ? <SearchPanel key={collectionId} scope={scope} scopeName={scopeName} onOpen={(s, p) => void openSource(s, p)}/>
+      : tab === 'ask' ? <div className="library-assistant"><Assistant key={collectionId} scope={scope}
+          title={`// 向${activeCollection ? '分组' : '图书馆'}提问`} subtitle={`跨「${scopeName}」中的文档检索并回答。`}
+          disabledNotice={!loading && total === 0 ? '范围内还没有文档，请先上传。' : undefined}
+          placeholder={`关于「${scopeName}」，你想了解什么？`} suggestions={['这些文档共同讨论了哪些主题？', '哪些文档提到了相同的概念？']}
+          onOpenSource={(s, p) => void openSource(s, p)}/></div>
+      : <>
         <div className="library-toolbar"><span>{activeCollection?.name || '全部文档'} / {total}</span>{activeCollection ? <div className="collection-actions"><button className="btn" disabled={collectionBusy} onClick={() => void modifyCollection()}>重命名</button><button className="btn btn-warn" disabled={collectionBusy} onClick={() => void modifyCollection(true)}>删除分组</button></div> : <span>PDF · 按上传时间排序</span>}</div>
         {loading && !docs.length ? <div className="panel-inset empty">正在加载图书馆…</div> : !docs.length && !error ? <div className="panel-inset empty"><h3>{activeCollection ? "分组中还没有文档" : "上传第一份文档"}</h3><p>{activeCollection ? "上传 PDF，或在全部文档中通过“管理分组”加入已有文档。" : "上传一份 PDF，打开阅读，向文档提问。"}</p><button className="btn btn-ok" disabled={uploading} onClick={() => input.current?.click()}>上传 PDF</button></div> : <div className="document-list">{docs.map(doc => <article className="panel-inset document-card" key={doc.document_id}>
           <div className="document-info"><h3>{doc.filename}</h3><div className="document-groups">{collections.filter(c => doc.collection_ids?.includes(c.collection_id)).map(c => <span key={c.collection_id}>{c.name}</span>)}</div><span className="card-meta">{doc.page_count ? `${doc.page_count} 页 · ` : ''}{new Date(doc.uploaded_at).toLocaleDateString('zh-CN')}</span></div>
           <span className={`status status-${doc.status}`}><i className={`led ${doc.status === 'indexed' ? 'ok' : doc.status === 'failed' ? 'warn' : ''}`} aria-hidden="true"/>{statusNames[doc.status] || doc.status}</span>
-          <div className="document-actions"><button className="btn" onClick={() => setMembershipDoc(doc)}>管理分组</button><button className="btn" onClick={() => setSelected(doc.document_id)}>打开</button>{['failed','uploaded'].includes(doc.status) && <button className="btn btn-ok" disabled={working === doc.document_id} onClick={() => void action(doc)}>{doc.status === 'failed' ? '重试' : '开始处理'}</button>}<button className="btn btn-warn" disabled={busy(doc.status) || working === doc.document_id} onClick={() => void action(doc, true)}>删除</button></div>
+          <div className="document-actions"><button className="btn" onClick={() => setMembershipDoc(doc)}>管理分组</button><button className="btn" onClick={() => openDocument(doc.document_id)}>打开</button>{['failed','uploaded'].includes(doc.status) && <button className="btn btn-ok" disabled={working === doc.document_id} onClick={() => void action(doc)}>{doc.status === 'failed' ? '重试' : '开始处理'}</button>}<button className="btn btn-warn" disabled={busy(doc.status) || working === doc.document_id} onClick={() => void action(doc, true)}>删除</button></div>
           {doc.last_error && <p className="card-error">{doc.last_error}</p>}
         </article>)}</div>}
         {total > 20 && <div className="pagination"><button className="btn" disabled={offset === 0} onClick={() => setOffset(n => n - 20)}>上一页</button><span>{Math.floor(offset / 20) + 1} / {Math.ceil(total / 20)}</span><button className="btn" disabled={offset + 20 >= total} onClick={() => setOffset(n => n + 20)}>下一页</button></div>}

@@ -1,6 +1,7 @@
 """Pydantic models for API request and response schemas."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -100,3 +101,54 @@ class CollectionListResponse(BaseModel):
 
 class DocumentCollections(BaseModel):
     collection_ids: list[UUID] = Field(default_factory=list, max_length=100)
+
+
+class ScopeInput(BaseModel):
+    """Retrieval scope: explicit documents, a collection, or (neither) the whole library."""
+
+    document_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=100)
+    collection_id: UUID | None = None
+
+
+class SearchRequest(ScopeInput):
+    query: str = Field(min_length=1, max_length=1000)
+    top_k: int = Field(default=10, ge=1, le=50)
+
+
+class SearchResponse(BaseModel):
+    query: str
+    results: list[RetrievalResult]
+    document_ids: list[UUID]
+    skipped_document_ids: list[UUID]
+
+
+class SelectionInput(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    document_id: UUID | None = None
+    page_number: int | None = Field(default=None, ge=1)
+
+
+class AskRequest(ScopeInput):
+    question: str = Field(min_length=1, max_length=4000)
+    mode: Literal["grounded", "open"] = "grounded"
+    selection: SelectionInput | None = None
+    top_k: int = Field(default=5, ge=1, le=10)
+
+
+class AnswerSegmentOutput(BaseModel):
+    source_type: Literal["library", "model", "unlabeled"]
+    text: str
+
+
+class SourceAwareAnswer(BaseModel):
+    """An answer split by knowledge source type, with its evidence and scope."""
+
+    question: str
+    answer: str
+    mode: Literal["grounded", "open"]
+    segments: list[AnswerSegmentOutput]
+    sources: list[RetrievalResult]
+    invalid_citations: list[int]
+    document_ids: list[UUID]
+    skipped_document_ids: list[UUID]
+    created_at: datetime | None = None

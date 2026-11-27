@@ -130,7 +130,7 @@ def test_provider_failure_returns_502(client, monkeypatch):
     from aviatlas.answering.generator import AnswerGenerationError
     doc_id = upload(client)
     client.post('/api/v1/documents/parse', params={'document_id': doc_id})
-    def fail(*args): raise AnswerGenerationError('Provider unavailable')
+    def fail(*args, **kwargs): raise AnswerGenerationError('Provider unavailable')
     monkeypatch.setattr(client.services.qa.answerer, 'generate', fail)
     response = client.post('/api/v1/documents/ask', json={'document_id': doc_id, 'question': '阳光'})
     assert response.status_code == 502

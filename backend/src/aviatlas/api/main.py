@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse, FileResponse
 from aviatlas.api.dependencies import Services, get_services
 from aviatlas.api.models import DocumentUploadResponse, ParseResponse, QuestionAnswer, QuestionRequest, DocumentSummary, DocumentListResponse, ProcessingResponse
 from aviatlas.api.models import CollectionInput, CollectionSummary, CollectionListResponse, DocumentCollections
+from aviatlas.api.models import AskRequest, ScopeInput, SearchRequest, SearchResponse, SourceAwareAnswer
+from aviatlas.services.models import ScopeRequest, Selection
 from aviatlas.services.errors import (
     CollectionNotFound,
     DocumentBusy, ServiceError, InvalidInput, DocumentNotFound, DocumentNotReady,
@@ -66,6 +68,23 @@ def parse_document(document_id: str, services: Services = Depends(get_services))
 @app.post("/api/v1/documents/ask", response_model=QuestionAnswer)
 def ask_question(request: QuestionRequest, services: Services = Depends(get_services)):
     return asdict(services.qa.ask(request.document_id, request.question, request.top_k))
+
+
+def scope_request(body: ScopeInput) -> ScopeRequest:
+    return ScopeRequest(document_ids=body.document_ids, collection_id=body.collection_id)
+
+@app.post("/api/v1/search", response_model=SearchResponse)
+def search(request: SearchRequest, services: Services = Depends(get_services)):
+    if services.search is None:
+        raise HTTPException(status_code=503, detail="Search is unavailable.")
+    return asdict(services.search.search(request.query, scope_request(request), request.top_k))
+
+@app.post("/api/v1/ask", response_model=SourceAwareAnswer)
+def ask(request: AskRequest, services: Services = Depends(get_services)):
+    selection = request.selection and Selection(
+        request.selection.text, request.selection.document_id, request.selection.page_number)
+    return asdict(services.qa.answer(request.question, scope_request(request), mode=request.mode,
+                                     selection=selection, top_k=request.top_k))
 
 
 def summarize(record, collection_ids=None) -> DocumentSummary:
