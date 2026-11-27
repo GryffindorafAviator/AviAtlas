@@ -33,10 +33,39 @@ function App() {
     try { await request(`/documents/${doc.document_id}${remove ? '' : doc.status === 'failed' ? '/retry' : '/process'}`, { method: remove ? 'DELETE' : 'POST' }); await refresh(); }
     catch (e) { setError((e as Error).message); } finally { setWorking(null); }
   }
-  return <><header className="topbar"><a className="brand" href="#" onClick={() => setSelected(null)}><span className="brand-mark">A</span>AviAtlas<span className="brand-sub">知识，有迹可循。</span></a><span className="local"><i/>个人工作空间</span></header><div className="app-shell"><nav className="sidebar"><div className="eyebrow">工作空间</div><button className="nav-item active" onClick={() => setSelected(null)}>▤ <span>我的图书馆</span><span className="nav-count">{total}</span></button><div className="sidebar-note"><span>从阅读到理解</span><p>收藏你的文档，<br/>探索其中的知识。</p></div><div className="sidebar-bottom">AVIATLAS <span>MVP / 01</span></div></nav><main>
-      <div className="page-heading"><div><div className="breadcrumb"><button onClick={() => setSelected(null)}>我的图书馆</button>{current && <span> / 阅读空间</span>}</div><h1>{current ? current.filename : '我的图书馆'}</h1><p>{current ? '阅读、提问，并在原文中找到依据。' : '把散落的文档，变成随时可以探索的知识。'}</p></div>{!current && <button className="primary upload-button" disabled={uploading} onClick={() => input.current?.click()}>{uploading ? '上传中…' : '+ 上传 PDF'}</button>}<input className="sr-only" ref={input} type="file" accept="application/pdf,.pdf" onChange={e => void upload(e.target.files?.[0])}/></div>
-      {error && <div className="error banner" role="alert">{error} <button onClick={() => void refresh().then(() => setError('')).catch(e => setError(e.message))}>重新连接</button></div>}
-      {current ? <Reader key={current.document_id} doc={current}/> : <><div className="library-toolbar"><span>全部文档 <b>{total}</b></span><span>PDF · 按上传时间排序</span></div>{loading && !docs.length ? <div className="empty">正在加载图书馆…</div> : !docs.length && !error ? <div className="empty"><div className="empty-icon">▤</div><h2>你的第一份知识，从这里开始</h2><p>上传一份 PDF，打开阅读，向文档提问。</p><button className="primary" disabled={uploading} onClick={() => input.current?.click()}>上传第一份 PDF</button></div> : <div className="document-grid">{docs.map((doc, index) => <article className="document-card" key={doc.document_id}><button className="document-open" onClick={() => setSelected(doc.document_id)}><div className={`cover cover-${index % 3}`}><span className="cover-type">PDF DOCUMENT</span><div className="cover-lines"/><span className="cover-title">{doc.filename.replace(/\.pdf$/i, '')}</span><span className="cover-footer">AVIATLAS LIBRARY ↗</span></div><div className="card-info"><h2>{doc.filename}</h2><div className="card-meta">{doc.page_count ? `${doc.page_count} 页 · ` : ''}{new Date(doc.uploaded_at).toLocaleDateString('zh-CN')}</div></div></button><div className="card-footer"><span className={`status status-${doc.status}`}><i/>{statusNames[doc.status] || doc.status}</span><div>{['failed','uploaded'].includes(doc.status) && <button disabled={working === doc.document_id} onClick={() => void action(doc)}>{doc.status === 'failed' ? '重试' : '开始处理'}</button>}<button disabled={busy(doc.status) || working === doc.document_id} onClick={() => void action(doc, true)}>删除</button></div></div>{doc.last_error && <p className="card-error">{doc.last_error}</p>}</article>)}</div>}{total > 20 && <div className="pagination"><button disabled={offset === 0} onClick={() => setOffset(n => n - 20)}>上一页</button><span>{Math.floor(offset / 20) + 1} / {Math.ceil(total / 20)}</span><button disabled={offset + 20 >= total} onClick={() => setOffset(n => n + 20)}>下一页</button></div>}<footer className="library-footer">每一次提问，都有来源可寻。<span>支持 PDF · 本地文档库</span></footer></>}
-    </main></div></>;
+  return <div className="terminal">
+    <header className="terminal-header">
+      <a className="brand" href="#" onClick={() => setSelected(null)}>AVIATLAS // PERSONAL KNOWLEDGE LIBRARY</a>
+      <h1>AVIATLAS</h1>
+      <p>阅读、提问，并在原文中找到依据。</p>
+    </header>
+    <div className="status-bar">
+      <span><i className="led ok" aria-hidden="true"/>个人工作空间</span>
+      <span>文档 {String(total).padStart(3, '0')}</span>
+      <span>{current ? 'MODE: DOCUMENT' : 'MODE: LIBRARY'}</span>
+    </div>
+    <main>
+      <div className="page-heading">
+        <div>{current && <button className="btn back-button" onClick={() => setSelected(null)}>← 返回图书馆</button>}
+          <h2>{current ? '// DOCUMENT' : '// LIBRARY'}</h2>
+          {current ? <p className="document-title">{current.filename}</p> : <p>我的图书馆 · 上传 PDF，打开阅读并提问。</p>}
+        </div>
+        {!current && <button className="btn btn-ok" disabled={uploading} onClick={() => input.current?.click()}>{uploading ? '上传中…' : '+ 上传 PDF'}</button>}
+        <input className="sr-only" ref={input} type="file" accept="application/pdf,.pdf" onChange={e => void upload(e.target.files?.[0])}/>
+      </div>
+      {error && <div className="panel-inset error banner" role="alert">{error} <button className="btn" onClick={() => void refresh().then(() => setError('')).catch(e => setError(e.message))}>重新连接</button></div>}
+      {current ? <Reader key={current.document_id} doc={current}/> : <>
+        <div className="library-toolbar"><span>全部文档 / {total}</span><span>PDF · 按上传时间排序</span></div>
+        {loading && !docs.length ? <div className="panel-inset empty">正在加载图书馆…</div> : !docs.length && !error ? <div className="panel-inset empty"><h3>上传第一份文档</h3><p>上传一份 PDF，打开阅读，向文档提问。</p><button className="btn btn-ok" disabled={uploading} onClick={() => input.current?.click()}>上传 PDF</button></div> : <div className="document-list">{docs.map(doc => <article className="panel-inset document-card" key={doc.document_id}>
+          <div className="document-info"><h3>{doc.filename}</h3><span className="card-meta">{doc.page_count ? `${doc.page_count} 页 · ` : ''}{new Date(doc.uploaded_at).toLocaleDateString('zh-CN')}</span></div>
+          <span className={`status status-${doc.status}`}><i className={`led ${doc.status === 'indexed' ? 'ok' : doc.status === 'failed' ? 'warn' : ''}`} aria-hidden="true"/>{statusNames[doc.status] || doc.status}</span>
+          <div className="document-actions"><button className="btn" onClick={() => setSelected(doc.document_id)}>打开</button>{['failed','uploaded'].includes(doc.status) && <button className="btn btn-ok" disabled={working === doc.document_id} onClick={() => void action(doc)}>{doc.status === 'failed' ? '重试' : '开始处理'}</button>}<button className="btn btn-warn" disabled={busy(doc.status) || working === doc.document_id} onClick={() => void action(doc, true)}>删除</button></div>
+          {doc.last_error && <p className="card-error">{doc.last_error}</p>}
+        </article>)}</div>}
+        {total > 20 && <div className="pagination"><button className="btn" disabled={offset === 0} onClick={() => setOffset(n => n - 20)}>上一页</button><span>{Math.floor(offset / 20) + 1} / {Math.ceil(total / 20)}</span><button className="btn" disabled={offset + 20 >= total} onClick={() => setOffset(n => n + 20)}>下一页</button></div>}
+      </>}
+    </main>
+    <footer className="terminal-footer">AVIATLAS // READ · ASK · TRACE</footer>
+  </div>;
 }
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);
