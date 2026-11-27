@@ -168,3 +168,67 @@ class SourceAwareAnswer(BaseModel):
     document_ids: list[UUID]
     skipped_document_ids: list[UUID]
     created_at: datetime | None = None
+
+
+class CitedSource(RetrievalResult):
+    """A stored source with its citation number in the answer."""
+
+    citation: int
+
+
+class SelectionOutput(BaseModel):
+    text: str
+    document_id: UUID | None = None
+    page_number: int | None = None
+
+
+class MessageOutput(BaseModel):
+    message_id: UUID
+    role: Literal["user", "assistant"]
+    content: str
+    status: Literal["complete", "streaming", "failed", "stopped"]
+    created_at: datetime
+    mode: Literal["grounded", "open"] | None = None
+    selection: SelectionOutput | None = None
+    segments: list[AnswerSegmentOutput] = Field(default_factory=list)
+    sources: list[CitedSource] = Field(default_factory=list)
+    invalid_citations: list[int] = Field(default_factory=list)
+    # The query retrieval actually ran, after follow-up rewriting.
+    search_query: str | None = None
+    # Sources whose documents were deleted after the answer.
+    removed_source_count: int = 0
+    skipped_document_ids: list[UUID] = Field(default_factory=list)
+    error: str | None = None
+
+
+class ConversationCreate(ScopeInput):
+    title: str | None = Field(default=None, max_length=200)
+
+
+class ConversationRename(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
+class ConversationSummary(BaseModel):
+    conversation_id: UUID
+    title: str | None
+    document_ids: list[UUID] | None
+    collection_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
+    message_count: int
+
+
+class ConversationDetail(ConversationSummary):
+    messages: list[MessageOutput]
+
+
+class ConversationListResponse(BaseModel):
+    items: list[ConversationSummary]
+
+
+class MessageRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    mode: Literal["grounded", "open"] = "grounded"
+    selection: SelectionInput | None = None
+    top_k: int = Field(default=5, ge=1, le=10)

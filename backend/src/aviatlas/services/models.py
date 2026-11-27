@@ -63,3 +63,34 @@ class AnswerResult:
     invalid_citations: list[int] = field(default_factory=list)
     document_ids: list[UUID] = field(default_factory=list)
     skipped_document_ids: list[UUID] = field(default_factory=list)
+
+
+MessageRole = Literal["user", "assistant"]
+# streaming: answer in progress; stopped: cancelled by the user, partial text kept.
+MessageStatus = Literal["complete", "streaming", "failed", "stopped"]
+
+@dataclass
+class ConversationRecord:
+    conversation_id: UUID
+    title: str | None
+    # Scope fixed at creation; same meaning as ScopeRequest.
+    document_ids: list[UUID] | None
+    collection_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
+    message_count: int = 0
+
+@dataclass
+class MessageRecord:
+    message_id: UUID
+    conversation_id: UUID
+    seq: int
+    role: MessageRole
+    content: str
+    status: MessageStatus
+    # user: mode, selection. assistant: mode, segments, invalid_citations, search_query,
+    # source_count, document_ids, skipped_document_ids, error.
+    payload: dict
+    created_at: datetime
+    # (citation number, source); numbers of sources from deleted documents are missing.
+    sources: list[tuple[int, RetrievalResult]] = field(default_factory=list)

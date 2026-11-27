@@ -23,7 +23,27 @@ NO_EVIDENCE = "文档中没有可用于回答此问题的内容。"
 NO_DOCUMENTS = "当前范围内没有可检索的文档。请先上传并处理文档。"
 
 
-def _retrieve(retriever: Retriever, resolver: ScopeResolver, resolved: ResolvedScope,
+def validate_question(question: str, mode: str, selection: Selection | None,
+                      top_k: int) -> tuple[str, Selection | None]:
+    """Return the stripped question and selection (None if blank)."""
+    query = question.strip()
+    if not query:
+        raise InvalidInput("Question cannot be empty.")
+    if not 1 <= top_k <= 10:
+        raise InvalidInput("top_k must be between 1 and 10.")
+    if mode not in ("grounded", "open"):
+        raise InvalidInput("mode must be 'grounded' or 'open'.")
+    if selection is not None:
+        text = selection.text.strip()
+        if not text:
+            return query, None
+        if len(text) > MAX_SELECTION_CHARS:
+            raise InvalidInput(f"Selected text must be at most {MAX_SELECTION_CHARS} characters.")
+        selection = Selection(text, selection.document_id, selection.page_number)
+    return query, selection
+
+
+def retrieve_evidence(retriever: Retriever, resolver: ScopeResolver, resolved: ResolvedScope,
               query: str, top_k: int) -> list[RetrievalResult]:
     if not resolved.document_ids:
         return []
@@ -98,26 +118,12 @@ class QuestionAnsweringService:
 
     def answer(self, question: str, scope: ScopeRequest, *, mode: AnswerMode = "grounded",
                selection: Selection | None = None, top_k: int = 5) -> AnswerResult:
-        query = question.strip()
-        if not query:
-            raise InvalidInput("Question cannot be empty.")
-        if not 1 <= top_k <= 10:
-            raise InvalidInput("top_k must be between 1 and 10.")
-        if mode not in ("grounded", "open"):
-            raise InvalidInput("mode must be 'grounded' or 'open'.")
-        if selection is not None:
-            text = selection.text.strip()
-            if not text:
-                selection = None
-            elif len(text) > MAX_SELECTION_CHARS:
-                raise InvalidInput(f"Selected text must be at most {MAX_SELECTION_CHARS} characters.")
-            else:
-                selection = Selection(text, selection.document_id, selection.page_number)
+        query, selection = validate_question(question, mode, selection, top_k)
         resolved = self.resolver.resolve(scope)
         single = scope.document_ids[0] if scope.document_ids and len(scope.document_ids) == 1 else None
         # The selected passage sharpens retrieval toward the part being read.
         retrieval_query = f"{query}\n{selection.text}" if selection else query
-        sources = _retrieve(self.retriever, self.resolver, resolved, retrieval_query, top_k)
+        sources = retrieve_evidence(self.retriever, self.resolver, resolved, retrieval_query, top_k)
 
         def result(segments: list[AnswerSegment], invalid: list[int] | None = None) -> AnswerResult:
             return AnswerResult(single, question, join_segments(segments), sources,

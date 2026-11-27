@@ -212,3 +212,8 @@ button:not(.btn) { font-family: var(--font); font-size: 11px; background: linear
 .inspector-column .text-button { font-size: 10px; padding: 4px 8px; letter-spacing: 0; }
 .both-tag { color: var(--amber-bright); }
 @media (max-width: 1050px) { .inspector-columns { grid-template-columns: minmax(0, 1fr); } }
+.conversation-bar { display: flex; flex-shrink: 0; gap: 6px; align-items: center; padding: 8px 15px; background: var(--bg); border-bottom: 1px solid var(--bezel); }
+.conversation-bar select { flex: 1; min-width: 0; font-family: var(--font); font-size: 11px; padding: 5px 6px; background: var(--panel); color: var(--amber); border: 1px solid var(--bezel); border-radius: 3px; }
+.conversation-bar .btn { padding: 5px 9px; font-size: 10px; letter-spacing: 0; white-space: nowrap; }
+.search-query { font-size: 10px; color: var(--amber-dim); margin: 0 0 8px; overflow-wrap: anywhere; }
+.exchange.question-turn { padding-bottom: 0; margin-bottom: 12px; border-bottom: 0; }

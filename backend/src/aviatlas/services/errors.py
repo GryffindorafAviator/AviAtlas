@@ -33,3 +33,11 @@ class CollectionNotFound(ServiceError):
 
 class DuplicateDocument(ServiceError):
     pass
+
+
+class ConversationNotFound(ServiceError):
+    pass
+
+
+class ConversationBusy(ServiceError):
+    pass

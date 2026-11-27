@@ -1,17 +1,23 @@
 """HTTP routes and transport-level validation for AviAtlas."""
 from dataclasses import asdict
+import json
 from pathlib import Path
 from uuid import UUID
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from aviatlas.api.dependencies import Services, get_services
 from aviatlas.api.models import DocumentUploadResponse, ParseResponse, QuestionAnswer, QuestionRequest, DocumentSummary, DocumentListResponse, ProcessingResponse
 from aviatlas.api.models import CollectionInput, CollectionSummary, CollectionListResponse, DocumentCollections
 from aviatlas.api.models import AskRequest, ScopeInput, SearchDebugResponse, SearchRequest, SearchResponse, SourceAwareAnswer
+from aviatlas.api.models import (
+    CitedSource, ConversationCreate, ConversationDetail, ConversationListResponse, ConversationRename,
+    ConversationSummary, MessageOutput, MessageRequest,
+)
 from aviatlas.services.models import ScopeRequest, Selection
 from aviatlas.services.errors import (
-    CollectionNotFound, DuplicateDocument,
+    CollectionNotFound, ConversationBusy, ConversationNotFound, DuplicateDocument,
     DocumentBusy, ServiceError, InvalidInput, DocumentNotFound, DocumentNotReady,
     DocumentProcessingFailed, RetrievalUnavailable, GenerationUnavailable, GenerationFailed,
 )
@@ -24,7 +30,7 @@ app = FastAPI(
 )
 
 _ERROR_STATUS = {
-    CollectionNotFound: 404, DocumentBusy: 409, DuplicateDocument: 409, InvalidInput: 400, DocumentNotFound: 404, DocumentNotReady: 400,
+    CollectionNotFound: 404, ConversationNotFound: 404, ConversationBusy: 409, DocumentBusy: 409, DuplicateDocument: 409, InvalidInput: 400, DocumentNotFound: 404, DocumentNotReady: 400,
     DocumentProcessingFailed: 500, RetrievalUnavailable: 503,
     GenerationUnavailable: 503, GenerationFailed: 502,
 }
@@ -87,12 +93,89 @@ def search_debug(request: SearchRequest, services: Services = Depends(get_servic
     run, scope = search_service(services).inspect(request.query, scope_request(request), request.top_k, request.method)
     return {**asdict(run), "document_ids": scope.document_ids, "skipped_document_ids": scope.skipped_document_ids}
 
+def selection_of(body) -> Selection | None:
+    return body.selection and Selection(body.selection.text, body.selection.document_id, body.selection.page_number)
+
 @app.post("/api/v1/ask", response_model=SourceAwareAnswer)
 def ask(request: AskRequest, services: Services = Depends(get_services)):
-    selection = request.selection and Selection(
-        request.selection.text, request.selection.document_id, request.selection.page_number)
     return asdict(services.qa.answer(request.question, scope_request(request), mode=request.mode,
-                                     selection=selection, top_k=request.top_k))
+                                     selection=selection_of(request), top_k=request.top_k))
+
+
+def conversation_service(services: Services):
+    if services.conversations is None:
+        raise HTTPException(status_code=503, detail="Conversations are unavailable.")
+    return services.conversations
+
+def conversation_summary(record) -> ConversationSummary:
+    return ConversationSummary(**asdict(record))
+
+def message_output(message) -> MessageOutput:
+    payload = message.payload
+    sources = [CitedSource(**source.model_dump(), citation=n) for n, source in message.sources]
+    return MessageOutput(
+        message_id=message.message_id, role=message.role, content=message.content, status=message.status,
+        created_at=message.created_at, mode=payload.get("mode"), selection=payload.get("selection"),
+        segments=payload.get("segments") or [], sources=sources,
+        invalid_citations=payload.get("invalid_citations") or [], search_query=payload.get("search_query"),
+        removed_source_count=max(0, (payload.get("source_count") or 0) - len(sources)),
+        skipped_document_ids=payload.get("skipped_document_ids") or [], error=payload.get("error"))
+
+@app.post("/api/v1/conversations", response_model=ConversationSummary, status_code=201)
+def create_conversation(request: ConversationCreate, services: Services = Depends(get_services)):
+    return conversation_summary(conversation_service(services).create(scope_request(request), request.title))
+
+@app.get("/api/v1/conversations", response_model=ConversationListResponse)
+def list_conversations(limit: int = Query(default=100, ge=1, le=500), services: Services = Depends(get_services)):
+    return {"items": [conversation_summary(c) for c in conversation_service(services).list(limit)]}
+
+@app.get("/api/v1/conversations/{conversation_id}", response_model=ConversationDetail)
+def conversation_detail(conversation_id: UUID, services: Services = Depends(get_services)):
+    conversations = conversation_service(services)
+    record = conversations.get(conversation_id)
+    return ConversationDetail(**asdict(record), messages=[message_output(m) for m in conversations.messages(conversation_id)])
+
+@app.patch("/api/v1/conversations/{conversation_id}", response_model=ConversationSummary)
+def rename_conversation(conversation_id: UUID, request: ConversationRename, services: Services = Depends(get_services)):
+    return conversation_summary(conversation_service(services).rename(conversation_id, request.title))
+
+@app.delete("/api/v1/conversations/{conversation_id}", status_code=204)
+def delete_conversation(conversation_id: UUID, services: Services = Depends(get_services)):
+    conversation_service(services).delete(conversation_id)
+    return Response(status_code=204)
+
+
+def sse_event(event) -> str:
+    data = event.data
+    if event.name == "started":
+        body = {"user": message_output(data["user"]).model_dump(mode="json"),
+                "assistant": message_output(data["assistant"]).model_dump(mode="json")}
+    elif event.name == "retrieval":
+        body = {**data, "sources": [CitedSource(**s.model_dump(), citation=n).model_dump(mode="json")
+                                    for n, s in enumerate(data["sources"], 1)]}
+    elif event.name in ("done", "error"):
+        body = {**data, "message": data["message"] and message_output(data["message"]).model_dump(mode="json")}
+    else:
+        body = data
+    return f"event: {event.name}\ndata: {json.dumps(body, ensure_ascii=False)}\n\n"
+
+@app.post("/api/v1/conversations/{conversation_id}/messages")
+def post_message(conversation_id: UUID, request: MessageRequest, services: Services = Depends(get_services)):
+    """Server-Sent Events: started, retrieval, delta*, then done or error."""
+    turn = conversation_service(services).ask(conversation_id, request.question, mode=request.mode,
+                                              selection=selection_of(request), top_k=request.top_k)
+
+    async def stream():
+        events = turn.events()
+        try:
+            while (event := await run_in_threadpool(next, events, None)) is not None:
+                yield sse_event(event)
+        finally:
+            # A disconnected client stops generation; the turn saves what it has.
+            turn.cancel()
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 def summarize(record, collection_ids=None) -> DocumentSummary:

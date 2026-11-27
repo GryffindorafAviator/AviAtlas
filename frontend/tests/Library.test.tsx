@@ -5,6 +5,7 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../src/main';
 import type { Collection, Doc } from '../src/api';
+import { sse, turn } from './chatServer';
 vi.mock('../src/Reader', () => ({ Reader: ({ doc, initialPage }: { doc: Doc; initialPage: number }) => <div>Reader {doc.filename} page {initialPage}</div> }));
 const listed: Doc = { document_id: 'd1', filename: 'listed.pdf', title: null, status: 'indexed', page_count: 9, chunks_count: 3, last_error: null, uploaded_at: '2026-11-26', collection_ids: ['c1'] };
 const unlisted: Doc = { ...listed, document_id: 'd2', filename: 'other.pdf', collection_ids: [] };
@@ -28,8 +29,10 @@ beforeEach(() => {
               { chunk_id: 'b', document_id: 'd1', document_name: 'listed.pdf', content: 'Dense only', page_range: [3, 3], provenance: [], rank: 2, scores: { dense: .5 }, ranks: { dense: 2 } }],
       bm25: [{ chunk_id: 'a', document_id: 'd1', document_name: 'listed.pdf', content: 'Shared hit', page_range: [2, 2], provenance: [], rank: 1, scores: { bm25: 4 }, ranks: { bm25: 1 } }],
       results: [{ chunk_id: 'a', document_id: 'd1', document_name: 'listed.pdf', content: 'Shared hit', page_range: [2, 2], provenance: [], rank: 1, scores: { dense: .7, bm25: 4, rrf: .0328 }, ranks: { dense: 1, bm25: 1 } }] });
-    if (url === '/api/v1/ask') return json({ answer: 'Library answer [1].', mode: 'grounded', segments: [{ source_type: 'library', text: 'Library answer [1].' }], sources: [
-      { chunk_id: 'k2', document_id: 'd1', document_name: 'listed.pdf', content: 'Ev', page_range: [5, 5], provenance: [{ page_number: 5 }] }], skipped_document_ids: [] });
+    if (url === '/api/v1/conversations' && !options?.method) return json({ items: [] });
+    if (url === '/api/v1/conversations') return json({ conversation_id: 'conv1', title: null, document_ids: null, collection_id: 'c1', created_at: '', updated_at: '', message_count: 0 }, 201);
+    if (url === '/api/v1/conversations/conv1/messages') return sse(turn(JSON.parse(options!.body as string), { content: 'Library answer [1].', sources: [
+      { chunk_id: 'k2', document_id: 'd1', document_name: 'listed.pdf', content: 'Ev', page_range: [5, 5], provenance: [{ page_number: 5 }] }] }));
     return json({ detail: 'unexpected' }, 500);
   }));
 });
@@ -57,7 +60,8 @@ it('asks within the active collection and opens cited sources', async () => {
   expect(screen.getByText('范围：Physics')).toBeTruthy();
   await user.type(screen.getByRole('textbox', { name: '问题' }), 'What links these?{Enter}');
   await screen.findByText('Library answer [1].');
-  expect(calls.find(c => c.url === '/api/v1/ask')!.body).toEqual({ collection_id: 'c1', question: 'What links these?', mode: 'grounded', top_k: 5 });
+  expect(calls.find(c => c.url === '/api/v1/conversations' && c.body)!.body).toEqual({ collection_id: 'c1' });
+  expect(calls.find(c => c.url.endsWith('/messages'))!.body).toEqual({ question: 'What links these?', mode: 'grounded', top_k: 5 });
   await user.click(screen.getByRole('button', { name: /查看第 5 页/ }));
   expect(await screen.findByText('Reader listed.pdf page 5')).toBeTruthy();
 });

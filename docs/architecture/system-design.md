@@ -3,7 +3,7 @@
 | Field            | Description                  |
 | ---------------- | ---------------------------- |
 | Product          | AviAtlas                     |
-| Version          | 0.3                          |
+| Version          | 0.5                          |
 | Status           | Draft                        |
 | Document Type    | System Design Document       |
 | Last Updated     | 2026-11-27                   |
@@ -1145,20 +1145,20 @@ Final decisions should be documented through component designs and Architecture 
 | Backend Framework          | FastAPI                                   | Established direction |
 | Data Validation            | Pydantic                                  | Established direction |
 | Document Parsing           | Docling                                   | Initial selection     |
-| Embedding                  | Sentence Transformers                     | Candidate             |
-| Embedding Model            | BGE family                                | Candidate             |
+| Embedding                  | Sentence Transformers                     | Initial selection     |
+| Embedding Model            | paraphrase-multilingual-MiniLM-L12-v2 (BGE family candidate) | Initial selection |
 | Vector Index               | ChromaDB (backend-neutral interface; Milvus planned, see ADR 0001) | Initial selection |
-| Relational Database        | SQLite / PostgreSQL                       | Pending               |
-| Keyword Retrieval          | Application-layer BM25, jieba tokenization, SQLite postings | Initial selection |
-| Rank Fusion                | Reciprocal Rank Fusion (k = 60, pending evaluation) | Initial selection |
+| Relational Database        | SQLite (PostgreSQL for Phase 5)           | Initial selection     |
+| Keyword Retrieval          | Application-layer BM25, jieba tokenization, SQLite postings (ADR 0003) | Initial selection |
+| Rank Fusion                | Reciprocal Rank Fusion (k = 60, pending evaluation, ADR 0003) | Initial selection |
 | Reranking                  | Cross-encoder models                      | Candidate             |
 | LLM Integration            | OpenRouter                                | Initial selection     |
-| Agent Orchestration        | LangGraph (conversation and agent orchestration only, see ADR 0002) | Phase 2 |
+| Agent Orchestration        | LangGraph (conversation and agent orchestration only, see ADR 0002) | Initial selection (conversation turns) |
 | Computational Verification | SymPy and controlled execution tools      | Candidate             |
 | Formal Verification        | Lean                                      | Future exploration    |
 | Frontend                   | React + Vite                              | Established direction |
 | Document Reader            | react-pdf (PDF.js)                        | Established direction |
-| Streaming                  | Server-Sent Events                        | Proposed              |
+| Streaming                  | Server-Sent Events                        | Initial selection     |
 | Testing                    | pytest                                    | Established direction |
 | Graph Storage              | Neo4j or alternative graph representation | Deferred              |
 | Background Execution       | Local worker or task queue                | Pending               |
@@ -1619,10 +1619,11 @@ The following decisions require further investigation and detailed design.
 | Document Processing Design    | docs/design/parsing.md              |
 | Document Ingestion Design     | docs/design/ingestion.md            |
 | Chunking Design               | docs/design/chunking.md             |
-| Retrieval Design              | docs/design/retrieval.md            |
-| Answering Design              | docs/design/answering.md            |
+| Retrieval Design              | docs/design/retrieval.md (M2)       |
+| Answering Design              | docs/design/answering.md (M1)       |
 | Provenance Design             | docs/design/provenance.md           |
 | Verification Design           | docs/design/verification.md         |
+| Conversations                 | docs/design/conversations.md (M4)   |
 | Agent Architecture            | docs/design/agent.md                |
 | API Specification             | docs/api/                           |
 | Evaluation Plan               | docs/evaluation/evaluation-plan.md  |
@@ -1635,3 +1636,5 @@ The following decisions require further investigation and detailed design.
 | 0.1     | 2026-11-25 | Initial system architecture, component responsibilities, core pipelines, storage direction, API principles, reliability, security, and evaluation strategy. |
 | 0.2     | 2026-11-27 | Recorded vector index (ADR 0001) and LangGraph (ADR 0002) decisions; aligned frontend selections with the implementation; added user corrections to derived data as authoritative data. |
 | 0.3     | 2026-11-27 | Keyword retrieval and rank fusion moved from proposed to initial selections. |
+| 0.4     | 2026-11-27 | Recorded implemented embedding model and SQLite; linked retrieval and answering implementation docs and ADR 0003. |
+| 0.5     | 2026-11-27 | LangGraph and SSE in use for conversation turns; linked conversations implementation doc; ADR 0002 checkpointer amendment. |

@@ -1,5 +1,5 @@
 """Small contracts for interchangeable workflow dependencies."""
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterator, Sequence
 from typing import Protocol
 from uuid import UUID
 from aviatlas.parsing.models import Block, ParsedDocument
@@ -56,4 +56,9 @@ class Retriever(Protocol):
     def search(self, query: str, scope: RetrievalScope, top_k: int = 3) -> list[RetrievalResult]: ...
 
 class Answerer(Protocol):
-    def generate(self, question: str, sources: list[RetrievalResult]) -> str: ...
+    def generate(self, question: str, sources: list[RetrievalResult], **options) -> str: ...
+
+class ConversationalAnswerer(Answerer, Protocol):
+    """Adds streaming and follow-up rewriting. `history` items are {"role", "content"}."""
+    def stream(self, question: str, sources: list[RetrievalResult], **options) -> Iterator[str]: ...
+    def condense(self, question: str, history: Sequence[dict]) -> str: ...

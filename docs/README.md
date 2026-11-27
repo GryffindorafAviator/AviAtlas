@@ -57,9 +57,17 @@ Hybrid retrieval runs dense and BM25 recall in parallel (20 candidates each) and
 
 `/api/v1/documents/ask` remains for single-document grounded answers.
 
+## Conversations
+
+- `POST /api/v1/conversations` — `{"document_ids": [...]}`, `{"collection_id": "..."}`, or `{}` for the library; optional `title`. The scope is fixed for the conversation.
+- `GET /api/v1/conversations`, `GET|PATCH|DELETE /api/v1/conversations/{id}` — list, read with messages, rename, delete.
+- `POST /api/v1/conversations/{id}/messages` — `{"question": "...", "mode": "grounded", "selection": {...}, "top_k": 5}`. Streams Server-Sent Events `started`, `retrieval`, `delta`…, then `done` or `error`. Follow-up questions are rewritten into a standalone retrieval query (`search_query`) using the conversation.
+
+Closing the stream stops generation; the partial answer is saved as `stopped`. Details: [design/conversations.md](design/conversations.md).
+
 ## Current limits
 
-Run a single server worker and one application instance per data directory. There is no user authentication or conversation history; each question is answered independently. A local frontend is available; see [frontend setup](../frontend/README.md). Background processing runs in this server process using FastAPI background tasks; it is not an external worker or durable job queue. The legacy `/documents/parse` endpoint still waits for processing to finish. The chunker preserves entire blocks, so exceptionally long blocks can exceed the embedding model's input window. Citations are requested through prompting; citation correctness and answer quality need evaluation with real books.
+Run a single server worker and one application instance per data directory. There is no user authentication. A local frontend is available; see [frontend setup](../frontend/README.md). Background processing runs in this server process using FastAPI background tasks; it is not an external worker or durable job queue. The legacy `/documents/parse` endpoint still waits for processing to finish. The chunker preserves entire blocks, so exceptionally long blocks can exceed the embedding model's input window. Citations are requested through prompting; citation correctness and answer quality need evaluation with real books.
 
 ## Tests
 
@@ -75,12 +83,17 @@ Responses integration follows [OpenAI's text generation documentation](https://d
 
 ```text
 HTTP API (api/main.py)
-  ├─ DocumentService: upload → parse → chunk → embed → write vectors
-  └─ QuestionAnsweringService: retrieve (scoped) → generate → return evidence
-       ↕ shared document repository, Embedder, and VectorIndex
+  ├─ DocumentService: upload → parse → chunk → embed → write vectors + keyword postings
+  ├─ SearchService: resolve scope → hybrid retrieve
+  ├─ QuestionAnsweringService: resolve scope → hybrid retrieve → generate → segments + evidence
+  └─ ConversationService: LangGraph turn (rewrite → retrieve → stream) → SSE, SQLite history
+       ↕ shared document repository, Embedder, VectorIndex, KeywordIndex
 Concrete adapters: Docling, GreedyChunker, SentenceTransformerEmbedder,
-                   ChromaVectorIndex, DenseRetriever, AnswerGenerator
+                   ChromaVectorIndex, SQLiteKeywordIndex,
+                   HybridRetriever(DenseRetriever, KeywordRetriever), AnswerGenerator
 ```
+
+Implementation details: [design/retrieval.md](design/retrieval.md), [design/answering.md](design/answering.md), [design/conversations.md](design/conversations.md). Decisions: [adr/](adr/). Changes per milestone: [CHANGELOG.md](../CHANGELOG.md).
 
 `api/dependencies.py` wires the concrete adapters and shared stores together once per process. Routes translate request/response schemas and application errors into HTTP responses; they do not own document processing or question answering logic.
 

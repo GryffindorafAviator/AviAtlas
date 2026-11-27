@@ -2,7 +2,7 @@
 
 | Field | Description |
 |---|---|
-| Status | Accepted |
+| Status | Accepted; decision 6 amended 2026-11-27 (M4) |
 | Date | 2026-11-27 |
 | Related | System Design §5.10 (Agent Orchestration), §5.13 (Context and Memory), §10 (Answering), §13.4 (Streaming) |
 
@@ -34,3 +34,9 @@ Phase 3 extends the same graph with tool selection, external retrieval, and iter
 
 - Positive: thread state, streaming, and tool loops without custom infrastructure; provenance and diagnostics stay under AviAtlas's control; grounding is enforced by the graph structure.
 - Negative: an additional dependency and an adapter layer between framework events and API events; framework upgrades must be checked against that adapter.
+
+## Amendment (M4) — no checkpointer yet
+
+Decision 6 is replaced: conversation state lives only in AviAtlas's `conversations` / `messages` tables; each turn rebuilds graph input from them. A checkpointer would hold a second copy of the same history that deletion and the document deletion policy would have to keep in sync, and the Phase 2 graph has no interrupt or resume that needs one. Add a checkpointer when Phase 3 introduces interruptible or long-running tool loops.
+
+The implemented graph adds `condense_question` before `prefetch_retrieve` and a `no_evidence` branch; see [docs/design/conversations.md](../design/conversations.md).
