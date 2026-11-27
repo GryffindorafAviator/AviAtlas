@@ -36,3 +36,7 @@ backend/data/
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
+
+# Frontend dependencies and compiler cache
+node_modules/
+*.tsbuildinfo

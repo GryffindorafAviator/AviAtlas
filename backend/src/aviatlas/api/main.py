@@ -4,7 +4,7 @@ from pathlib import Path
 from uuid import UUID
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from aviatlas.api.dependencies import Services, get_services
 from aviatlas.api.models import DocumentUploadResponse, ParseResponse, QuestionAnswer, QuestionRequest, DocumentSummary, DocumentListResponse, ProcessingResponse
 from aviatlas.services.errors import (
@@ -101,3 +101,13 @@ def retry_document(document_id: UUID, background_tasks: BackgroundTasks,
 def delete_document(document_id: UUID, services: Services = Depends(get_services)):
     services.documents.delete(document_id)
     return Response(status_code=204)
+
+
+@app.get("/api/v1/documents/{document_id}/file")
+def document_file(document_id: UUID, services: Services = Depends(get_services)):
+    record = services.documents.get(document_id)
+    if not record.filepath or not record.filepath.is_file():
+        raise DocumentNotFound("Original PDF is missing. Upload it again.")
+    return FileResponse(record.filepath, media_type="application/pdf",
+                        filename=record.filename, content_disposition_type="inline",
+                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})

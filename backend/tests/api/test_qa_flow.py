@@ -209,3 +209,17 @@ def test_manual_process_and_duplicate_queue(client):
     assert client.delete(f'/api/v1/documents/{doc_id}').status_code == 204
     client.services.documents.process_queued(UUID(doc_id))
     assert client.get(f'/api/v1/documents/{doc_id}').status_code == 404
+
+
+def test_original_pdf_read_and_missing_file(client):
+    from uuid import UUID
+    doc_id = upload(client)
+    response = client.get(f'/api/v1/documents/{doc_id}/file')
+    assert response.status_code == 200
+    assert response.content == b'%PDF-fake'
+    assert response.headers['content-type'] == 'application/pdf'
+    assert response.headers['content-disposition'].startswith('inline;')
+    assert response.headers['cache-control'] == 'private, no-store'
+    client.services.documents.get(UUID(doc_id)).filepath.unlink()
+    assert client.get(f'/api/v1/documents/{doc_id}/file').status_code == 404
+    assert client.get(f'/api/v1/documents/{uuid4()}/file').status_code == 404
