@@ -17,6 +17,7 @@ dependencies = [
     "numpy",
     "openai>=1.66",
     "chromadb",
+    "jieba>=0.42",
 ]
 
 [project.optional-dependencies]

@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from aviatlas.api.dependencies import Services, get_services
 from aviatlas.api.models import DocumentUploadResponse, ParseResponse, QuestionAnswer, QuestionRequest, DocumentSummary, DocumentListResponse, ProcessingResponse
 from aviatlas.api.models import CollectionInput, CollectionSummary, CollectionListResponse, DocumentCollections
-from aviatlas.api.models import AskRequest, ScopeInput, SearchRequest, SearchResponse, SourceAwareAnswer
+from aviatlas.api.models import AskRequest, ScopeInput, SearchDebugResponse, SearchRequest, SearchResponse, SourceAwareAnswer
 from aviatlas.services.models import ScopeRequest, Selection
 from aviatlas.services.errors import (
     CollectionNotFound, DuplicateDocument,
@@ -73,11 +73,19 @@ def ask_question(request: QuestionRequest, services: Services = Depends(get_serv
 def scope_request(body: ScopeInput) -> ScopeRequest:
     return ScopeRequest(document_ids=body.document_ids, collection_id=body.collection_id)
 
-@app.post("/api/v1/search", response_model=SearchResponse)
-def search(request: SearchRequest, services: Services = Depends(get_services)):
+def search_service(services: Services):
     if services.search is None:
         raise HTTPException(status_code=503, detail="Search is unavailable.")
-    return asdict(services.search.search(request.query, scope_request(request), request.top_k))
+    return services.search
+
+@app.post("/api/v1/search", response_model=SearchResponse)
+def search(request: SearchRequest, services: Services = Depends(get_services)):
+    return asdict(search_service(services).search(request.query, scope_request(request), request.top_k, request.method))
+
+@app.post("/api/v1/search/debug", response_model=SearchDebugResponse)
+def search_debug(request: SearchRequest, services: Services = Depends(get_services)):
+    run, scope = search_service(services).inspect(request.query, scope_request(request), request.top_k, request.method)
+    return {**asdict(run), "document_ids": scope.document_ids, "skipped_document_ids": scope.skipped_document_ids}
 
 @app.post("/api/v1/ask", response_model=SourceAwareAnswer)
 def ask(request: AskRequest, services: Services = Depends(get_services)):

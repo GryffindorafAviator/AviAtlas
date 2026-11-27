@@ -1,5 +1,8 @@
 export type Doc = { document_id: string; filename: string; title: string | null; status: string; page_count: number | null; chunks_count: number; last_error: string | null; uploaded_at: string; collection_ids?: string[] };
-export type Source = { chunk_id: string; content: string; page_range: [number, number] | null; provenance: { page_number: number }[]; document_id?: string | null; document_name?: string | null; score?: number; rank?: number | null };
+export type Source = { chunk_id: string; content: string; page_range: [number, number] | null; provenance: { page_number: number }[]; document_id?: string | null; document_name?: string | null; score?: number; rank?: number | null; retrieval_method?: string | null; scores?: Record<string, number>; ranks?: Record<string, number>; matched_terms?: string[] };
+export type RetrievalMethod = 'hybrid' | 'dense' | 'bm25';
+export const methodNames: Record<RetrievalMethod, string> = { hybrid: '混合检索', dense: '语义检索', bm25: '关键词检索' };
+export type DebugResponse = { query: string; method: RetrievalMethod; query_terms: string[]; document_ids: string[]; skipped_document_ids: string[]; dense: Source[]; bm25: Source[]; results: Source[]; timings_ms: Record<string, number>; config: Record<string, string | number> };
 export type SourceType = 'library' | 'model' | 'unlabeled';
 export type AnswerMode = 'grounded' | 'open';
 export type Segment = { source_type: SourceType; text: string };

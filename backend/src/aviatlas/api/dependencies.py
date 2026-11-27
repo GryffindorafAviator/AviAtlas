@@ -7,6 +7,8 @@ import os
 from aviatlas.answering.generator import AnswerGenerator
 from aviatlas.chunking.greedy_chunker import GreedyChunker
 from aviatlas.retrieval.dense import DenseRetriever
+from aviatlas.retrieval.hybrid import HybridRetriever
+from aviatlas.retrieval.keyword import KeywordRetriever
 from aviatlas.retrieval.embedding import SentenceTransformerEmbedder
 from aviatlas.services.documents import DocumentService
 from aviatlas.services.qa import QuestionAnsweringService, SearchService
@@ -15,6 +17,7 @@ from aviatlas.services.collections import CollectionService
 from aviatlas.storage.collection_repository import SQLiteCollectionRepository
 from aviatlas.storage.sqlite_repository import SQLiteDocumentRepository
 from aviatlas.storage.chroma_vector_index import ChromaVectorIndex
+from aviatlas.storage.keyword_index import SQLiteKeywordIndex
 
 def create_parser():
     from aviatlas.parsing.docling_parser import DoclingParser
@@ -39,12 +42,13 @@ def _build_services() -> Services:
     repository = SQLiteDocumentRepository(data_dir / "documents.sqlite3")
     vectors = ChromaVectorIndex(repository, data_dir / "chroma")
     embedder = SentenceTransformerEmbedder()
-    retriever = DenseRetriever(repository, embedder, vectors)
+    keywords = SQLiteKeywordIndex(repository)
+    retriever = HybridRetriever(DenseRetriever(repository, embedder, vectors), KeywordRetriever(repository, keywords))
     collections = CollectionService(SQLiteCollectionRepository(repository))
     resolver = ScopeResolver(repository, collections)
     services = Services(
         DocumentService(repository, vectors, data_dir / "uploads", create_parser,
-                        GreedyChunker(max_chars=1000), embedder),
+                        GreedyChunker(max_chars=1000), embedder, keywords),
         QuestionAnsweringService(repository, retriever, AnswerGenerator(), resolver),
         collections,
         SearchService(retriever, resolver),
@@ -53,4 +57,5 @@ def _build_services() -> Services:
     services.documents.repair_records()
     services.documents.recover_interrupted()
     services.documents.resume_deletions()
+    services.documents.rebuild_keyword_indexes()
     return services

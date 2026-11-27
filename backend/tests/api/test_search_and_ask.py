@@ -13,12 +13,15 @@ from aviatlas.api.main import app
 from aviatlas.chunking.greedy_chunker import GreedyChunker
 from aviatlas.parsing.models import Block, BlockType, BoundingBox, DocumentMetadata, ParsedDocument, ProvenanceItem
 from aviatlas.retrieval.dense import DenseRetriever
+from aviatlas.retrieval.hybrid import HybridRetriever
+from aviatlas.retrieval.keyword import KeywordRetriever
 from aviatlas.retrieval.embedding import SentenceTransformerEmbedder
 from aviatlas.services.collections import CollectionService
 from aviatlas.services.documents import DocumentService
 from aviatlas.services.qa import QuestionAnsweringService, SearchService
 from aviatlas.services.scope import ScopeResolver
 from aviatlas.storage.collection_repository import SQLiteCollectionRepository
+from aviatlas.storage.keyword_index import SQLiteKeywordIndex
 from aviatlas.storage.memory_vector_index import InMemoryVectorIndex
 from aviatlas.storage.sqlite_repository import SQLiteDocumentRepository
 
@@ -51,9 +54,11 @@ def lib(tmp_path):
             Block(id=uuid4(), type=BlockType.PARAGRAPH, order=0, content=path.read_text(),
                   provenance=[ProvenanceItem(page_number=4, bbox=BoundingBox(x0=0, y0=0, x1=1, y1=1))])])
 
+    keywords = SQLiteKeywordIndex(repo)
     docs = DocumentService(repo, vectors, tmp_path / 'uploads', lambda: SimpleNamespace(parse=parse),
-                           GreedyChunker(), embedder)
-    retriever, resolver = DenseRetriever(repo, embedder, vectors), ScopeResolver(repo, collections)
+                           GreedyChunker(), embedder, keywords)
+    retriever = HybridRetriever(DenseRetriever(repo, embedder, vectors), KeywordRetriever(repo, keywords))
+    resolver = ScopeResolver(repo, collections)
     answerer = Answerer()
     services = Services(docs, QuestionAnsweringService(repo, retriever, answerer, resolver),
                         collections, SearchService(retriever, resolver))
@@ -66,7 +71,8 @@ def lib(tmp_path):
 
     app.dependency_overrides[get_services] = lambda: services
     with TestClient(app) as client:
-        yield SimpleNamespace(client=client, add=add, answerer=answerer, collections=collections)
+        yield SimpleNamespace(client=client, add=add, answerer=answerer, collections=collections,
+                              docs=docs, keywords=keywords)
     app.dependency_overrides.pop(get_services, None)
 
 
@@ -177,3 +183,38 @@ def test_split_segments(raw, mode, expected):
 
 def test_invalid_citations():
     assert invalid_citations('See [1], [2, 5] and [0]. Not a citation: [x].', 3) == [0, 5]
+
+
+def test_search_methods_and_debug_inspector(lib):
+    physics = lib.add('mechanics.pdf', 'Rigid body rotation. Table 3 lists the Euler angles.')
+    lib.add('plants.pdf', 'Photosynthesis converts light energy.')
+    post = lambda path, body: lib.client.post(path, json={'query': 'Euler angles', 'top_k': 3, **body}).json()
+    hybrid = post('/api/v1/search', {})
+    assert hybrid['results'][0]['retrieval_method'] == 'hybrid'
+    assert hybrid['results'][0]['document_id'] == physics
+    assert set(hybrid['results'][0]['scores']) == {'bm25', 'dense', 'rrf'}
+    keyword = post('/api/v1/search', {'method': 'bm25'})
+    assert [r['document_id'] for r in keyword['results']] == [physics]
+    assert keyword['results'][0]['matched_terms'] == ['angles', 'euler']
+    debug = post('/api/v1/search/debug', {})
+    assert debug['query_terms'] == ['euler', 'angles']
+    assert len(debug['dense']) == 2 and len(debug['bm25']) == 1
+    assert debug['results'][0]['document_id'] == physics
+    assert set(debug['timings_ms']) == {'scope', 'dense', 'bm25', 'fusion', 'total'}
+    assert debug['config']['rrf_k'] == 60 and len(debug['document_ids']) == 2
+    assert lib.client.post('/api/v1/search', json={'query': 'x', 'method': 'magic'}).status_code == 422
+    empty = lib.client.post('/api/v1/search/debug', json={'query': 'x', 'collection_id': lib.client.post(
+        '/api/v1/collections', json={'name': 'Empty'}).json()['collection_id']}).json()
+    assert empty['results'] == [] and empty['document_ids'] == []
+
+
+def test_keyword_index_follows_document_lifecycle_and_rebuilds(lib):
+    from uuid import UUID
+    doc = UUID(lib.add('mechanics.pdf', 'Rigid body rotation.'))
+    assert lib.keywords.contains(doc)
+    lib.keywords.delete(doc)  # e.g. data written before keyword indexing existed
+    assert lib.client.post('/api/v1/search', json={'query': 'rotation'}).status_code == 400
+    assert lib.docs.rebuild_keyword_indexes() == 1 and lib.docs.rebuild_keyword_indexes() == 0
+    assert lib.client.post('/api/v1/search', json={'query': 'rotation', 'method': 'bm25'}).json()['results']
+    lib.client.delete(f'/api/v1/documents/{doc}')
+    assert not lib.keywords.contains(doc)

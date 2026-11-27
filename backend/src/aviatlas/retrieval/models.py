@@ -40,12 +40,17 @@ class RetrievalScope:
 
 
 @dataclass(frozen=True)
-class VectorHit:
-    """A backend-neutral vector search hit; content is resolved from records."""
+class ScoredHit:
+    """A backend-neutral index hit (vector or keyword); content is resolved from records."""
 
     chunk_id: UUID
     document_id: UUID
     score: float
+    # Query terms found in the chunk (keyword retrieval only).
+    matched_terms: tuple[str, ...] = ()
+
+
+VectorHit = ScoredHit
 
 
 class RetrievalChunk(BaseModel):
@@ -113,6 +118,11 @@ class RetrievalResult(BaseModel):
     score: float = 0.0
     rank: int | None = None
     retrieval_method: str | None = None
+    # Per-strategy evidence for diagnostics, e.g. {"dense": 0.71, "bm25": 9.2, "rrf": 0.032}.
+    # Scores from different strategies are not comparable with each other.
+    scores: dict[str, float] = Field(default_factory=dict)
+    ranks: dict[str, int] = Field(default_factory=dict)
+    matched_terms: List[str] = Field(default_factory=list)
     section_title: str | None = None
     page_range: tuple[int, int] | None = None
     source_excerpt: str | None = None

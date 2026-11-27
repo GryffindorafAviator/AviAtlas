@@ -40,6 +40,18 @@ class VectorIndex(Protocol):
     def search(self, vector, top_k: int, document_ids: Collection[UUID]) -> list[VectorHit]:
         """Best hits across the given documents, highest score first."""
 
+class KeywordIndex(Protocol):
+    """Backend-neutral term index for BM25 over chunks, rebuilt from chunk records."""
+    tokenizer_version: str
+    def replace(self, document_id: UUID, chunks: Sequence[tuple[UUID, list[str]]]) -> None:
+        """Store (chunk_id, tokens) pairs for one document, replacing earlier entries."""
+    def delete(self, document_id: UUID) -> None: ...
+    def contains(self, document_id: UUID) -> bool: ...
+    def ensure_ready(self, document_id: UUID, chunk_ids: Sequence[UUID]) -> None:
+        """Raise DocumentNotReady unless stored entries match these chunks and tokenizer."""
+    def search(self, terms: Sequence[str], top_k: int, document_ids: Collection[UUID]) -> list[VectorHit]:
+        """BM25 hits across the given documents, highest score first."""
+
 class Retriever(Protocol):
     def search(self, query: str, scope: RetrievalScope, top_k: int = 3) -> list[RetrievalResult]: ...
 

@@ -3,7 +3,7 @@
 | Field            | Description                  |
 | ---------------- | ---------------------------- |
 | Product          | AviAtlas                     |
-| Version          | 0.2                          |
+| Version          | 0.3                          |
 | Status           | Draft                        |
 | Document Type    | System Design Document       |
 | Last Updated     | 2026-11-27                   |
@@ -1149,8 +1149,8 @@ Final decisions should be documented through component designs and Architecture 
 | Embedding Model            | BGE family                                | Candidate             |
 | Vector Index               | ChromaDB (backend-neutral interface; Milvus planned, see ADR 0001) | Initial selection |
 | Relational Database        | SQLite / PostgreSQL                       | Pending               |
-| Keyword Retrieval          | BM25                                      | Proposed              |
-| Rank Fusion                | Reciprocal Rank Fusion                    | Proposed              |
+| Keyword Retrieval          | Application-layer BM25, jieba tokenization, SQLite postings | Initial selection |
+| Rank Fusion                | Reciprocal Rank Fusion (k = 60, pending evaluation) | Initial selection |
 | Reranking                  | Cross-encoder models                      | Candidate             |
 | LLM Integration            | OpenRouter                                | Initial selection     |
 | Agent Orchestration        | LangGraph (conversation and agent orchestration only, see ADR 0002) | Phase 2 |
@@ -1634,3 +1634,4 @@ The following decisions require further investigation and detailed design.
 | ------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0.1     | 2026-11-25 | Initial system architecture, component responsibilities, core pipelines, storage direction, API principles, reliability, security, and evaluation strategy. |
 | 0.2     | 2026-11-27 | Recorded vector index (ADR 0001) and LangGraph (ADR 0002) decisions; aligned frontend selections with the implementation; added user corrections to derived data as authoritative data. |
+| 0.3     | 2026-11-27 | Keyword retrieval and rank fusion moved from proposed to initial selections. |

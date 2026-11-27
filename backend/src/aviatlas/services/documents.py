@@ -9,9 +9,12 @@ from threading import Lock, RLock
 from uuid import UUID
 
 from aviatlas.storage.document_registry import DocumentRecord
-from aviatlas.services.errors import InvalidInput, DocumentNotFound, DocumentProcessingFailed, DocumentBusy, DuplicateDocument
+from aviatlas.retrieval.tokenizer import tokenize
+from aviatlas.services.errors import (
+    InvalidInput, DocumentNotFound, DocumentNotReady, DocumentProcessingFailed, DocumentBusy, DuplicateDocument,
+)
 from aviatlas.services.models import ParseResult
-from aviatlas.services.ports import DocumentRepository, Parser, Chunker, Embedder, VectorIndex
+from aviatlas.services.ports import DocumentRepository, Parser, Chunker, Embedder, KeywordIndex, VectorIndex
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +40,12 @@ def _hash_file(path: Path) -> str:
 class DocumentService:
     def __init__(self, repository: DocumentRepository, vectors: VectorIndex,
                  upload_dir: Path, parser_factory: Callable[[], Parser],
-                 chunker: Chunker, embedder: Embedder | None):
+                 chunker: Chunker, embedder: Embedder | None,
+                 keywords: KeywordIndex | None = None, tokenizer=tokenize):
         self.repository = repository
         self.vectors = vectors
+        self.keywords = keywords
+        self.tokenizer = tokenizer
         self.upload_dir = upload_dir
         self.parser_factory = parser_factory
         self.chunker = chunker
@@ -113,7 +119,7 @@ class DocumentService:
             record.set_status("deleting")
             self.repository.save(record)
             try:
-                self.vectors.delete(document_id)
+                self._delete_indexes(document_id)
                 if record.filepath:
                     record.filepath.unlink(missing_ok=True)
                 self.repository.delete(document_id)
@@ -139,12 +145,40 @@ class DocumentService:
             if changed:
                 self.repository.save(record)
 
+    def _delete_indexes(self, document_id: UUID) -> None:
+        self.vectors.delete(document_id)
+        if self.keywords is not None:
+            self.keywords.delete(document_id)
+
+    def _write_keywords(self, document_id: UUID, chunks) -> None:
+        if self.keywords is not None:
+            self.keywords.replace(document_id, [(c.id, self.tokenizer(c.resolved_text)) for c in chunks])
+
+    def rebuild_keyword_indexes(self) -> int:
+        """Build keyword entries that are missing or stale from stored chunks.
+
+        Keyword indexes derive only from chunk text, so unlike vectors they can be
+        rebuilt locally without reparsing or re-embedding."""
+        if self.keywords is None:
+            return 0
+        rebuilt = 0
+        for record in self.repository.all_records():
+            if record.status != "indexed" or not record.chunks:
+                continue
+            try:
+                self.keywords.ensure_ready(record.id, [c.id for c in record.chunks])
+            except DocumentNotReady:
+                with self._lock_for(record.id):
+                    self._write_keywords(record.id, record.chunks)
+                rebuilt += 1
+        return rebuilt
+
     def recover_interrupted(self) -> None:
         # One server process only: any in-flight records belong to the previous run.
         for record in self.repository.all_records():
             if record.status in {"queued", "parsing", "indexing"} or (
                     record.status == "uploaded" and record.filepath is None):
-                self.vectors.delete(record.id)
+                self._delete_indexes(record.id)
                 record.set_status("failed")
                 record.update_metadata(last_error="Processing was interrupted. Upload or parse again.")
                 self.repository.save(record)
@@ -204,7 +238,7 @@ class DocumentService:
         record.set_status("parsing")
         self.repository.save(record)
         try:
-            self.vectors.delete(document_id)
+            self._delete_indexes(document_id)
             parsed = self.parser_factory().parse(record.filepath)
             chunks = self.chunker.chunk(parsed.blocks, document_id=document_id, knowledge_base_id=None)
             if not chunks:
@@ -219,6 +253,7 @@ class DocumentService:
             record.parsed_at = datetime.now(timezone.utc)
             self.vectors.replace(document_id, [chunk.id for chunk in chunks], vectors,
                                  model_name=self.embedder.model_name)
+            self._write_keywords(document_id, chunks)
             record.set_status("indexed")
             record.metadata.pop("last_error", None)
             self.repository.save(record)
@@ -227,7 +262,7 @@ class DocumentService:
             record.update_metadata(last_error=f"{type(exc).__name__}: {exc}"[:500])
             self.repository.save(record)
             try:
-                self.vectors.delete(document_id)
+                self._delete_indexes(document_id)
             except Exception:
                 logger.exception("Failed to clean up index: %s", document_id)
             logger.exception("Document processing failed: %s", document_id)

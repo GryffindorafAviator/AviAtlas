@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 from aviatlas.answering.generator import AnswerConfigurationError, AnswerGenerationError
 from aviatlas.answering.segments import invalid_citations, join_segments, split_segments
+from aviatlas.retrieval.hybrid import METHODS, RetrievalRun
 from aviatlas.retrieval.models import RetrievalResult
 from aviatlas.services.errors import (
     InvalidInput, DocumentNotFound, DocumentNotReady, RetrievalUnavailable,
@@ -38,19 +39,44 @@ def _retrieve(retriever: Retriever, resolver: ScopeResolver, resolved: ResolvedS
 class SearchService:
     """Knowledge search; available even when no answer model is configured (§15.4)."""
 
-    def __init__(self, retriever: Retriever, resolver: ScopeResolver):
-        self.retriever = retriever
+    def __init__(self, retriever, resolver: ScopeResolver):
+        self.retriever = retriever  # a HybridRetriever: supports method= and run()
         self.resolver = resolver
 
-    def search(self, query: str, scope: ScopeRequest, top_k: int = 10) -> SearchResult:
+    @staticmethod
+    def _validate(query: str, top_k: int, method: str) -> str:
         query = query.strip()
         if not query:
             raise InvalidInput("Search query cannot be empty.")
         if not 1 <= top_k <= 50:
             raise InvalidInput("top_k must be between 1 and 50.")
+        if method not in METHODS:
+            raise InvalidInput(f"method must be one of: {', '.join(METHODS)}.")
+        return query
+
+    def search(self, query: str, scope: ScopeRequest, top_k: int = 10, method: str = "hybrid") -> SearchResult:
+        query = self._validate(query, top_k, method)
         resolved = self.resolver.resolve(scope)
-        results = _retrieve(self.retriever, self.resolver, resolved, query, top_k)
-        return SearchResult(query, results, resolved.document_ids, resolved.skipped_document_ids)
+        run = self._run(resolved, query, top_k, method)
+        return SearchResult(query, run.results if run else [], resolved.document_ids, resolved.skipped_document_ids)
+
+    def inspect(self, query: str, scope: ScopeRequest, top_k: int = 10,
+                method: str = "hybrid") -> tuple[RetrievalRun, ResolvedScope]:
+        """Retrieval with every stage's candidates, scores, and timings (§9.8)."""
+        query = self._validate(query, top_k, method)
+        resolved = self.resolver.resolve(scope)
+        return self._run(resolved, query, top_k, method) or RetrievalRun(query, method, []), resolved
+
+    def _run(self, resolved: ResolvedScope, query: str, top_k: int, method: str) -> RetrievalRun | None:
+        if not resolved.document_ids:
+            return None
+        try:
+            return self.retriever.run(query, self.resolver.retrieval_scope(resolved), top_k, method)
+        except DocumentNotReady:
+            raise
+        except Exception as exc:
+            logger.exception("Retrieval failed for %d documents", len(resolved.document_ids))
+            raise RetrievalUnavailable("Retrieval failed. Please retry.") from exc
 
 
 class QuestionAnsweringService:

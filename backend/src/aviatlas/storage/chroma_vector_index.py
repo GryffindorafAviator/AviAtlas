@@ -8,17 +8,13 @@ is enforced per index. A backend with metadata filtering (e.g. Milvus) can serve
 the same contract from a single collection.
 """
 from collections.abc import Collection, Sequence
-import hashlib
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from aviatlas.retrieval.models import VectorHit
 from aviatlas.services.errors import DocumentNotReady
+from aviatlas.storage.digest import chunk_digest
 from aviatlas.storage.sqlite_repository import SQLiteDocumentRepository
-
-
-def chunk_digest(chunk_ids: Sequence[UUID]) -> str:
-    return hashlib.sha256("|".join(str(chunk_id) for chunk_id in chunk_ids).encode()).hexdigest()
 
 
 class ChromaVectorIndex:

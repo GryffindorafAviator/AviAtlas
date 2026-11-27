@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
+import { ScoreBadges } from './ScoreBadges';
 import { postJson, sourcePage, type Answer, type AnswerMode, type Scope, type Segment, type Selection, type Source } from './api';
 
 type Message = { question: string; selection?: Selection; result: Answer };
@@ -65,7 +66,7 @@ export function Assistant({ scope, title, subtitle, status, disabledNotice, plac
         {!!m.result.skipped_document_ids?.length && <p className="notice">有 {m.result.skipped_document_ids.length} 份文档尚未处理完成，未参与检索。</p>}
         {!!m.result.sources.length && <div className="sources"><div className="eyebrow">原文依据 · {m.result.sources.length}</div>{m.result.sources.map((s, index) => {
           const p = sourcePage(s);
-          return <details className="panel-inset" key={s.chunk_id}><summary><span className="source-number">{index + 1}</span><span className="source-name">{s.document_name || fallbackName || '文档'}</span><span>{p ? `第 ${p} 页` : '无页码'}</span></summary><p>{s.content}</p>{p && <button className="btn text-button" disabled={!canOpen} onClick={() => onOpenSource(s, p)}>查看第 {p} 页 ↗</button>}</details>;
+          return <details className="panel-inset" key={s.chunk_id}><summary><span className="source-number">{index + 1}</span><span className="source-name">{s.document_name || fallbackName || '文档'}</span><span>{p ? `第 ${p} 页` : '无页码'}</span></summary><p>{s.content}</p><ScoreBadges source={s}/>{p && <button className="btn text-button" disabled={!canOpen} onClick={() => onOpenSource(s, p)}>查看第 {p} 页 ↗</button>}</details>;
         })}</div>}
       </article>)}
       {asking && <p className="thinking">✧ 正在检索文档并生成回答…</p>}<div ref={bottom}/>

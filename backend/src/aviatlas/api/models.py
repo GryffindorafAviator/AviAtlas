@@ -113,6 +113,22 @@ class ScopeInput(BaseModel):
 class SearchRequest(ScopeInput):
     query: str = Field(min_length=1, max_length=1000)
     top_k: int = Field(default=10, ge=1, le=50)
+    method: Literal["hybrid", "dense", "bm25"] = "hybrid"
+
+
+class SearchDebugResponse(BaseModel):
+    """Every retrieval stage for one query: candidates, fusion, and timings."""
+
+    query: str
+    method: str
+    query_terms: list[str]
+    document_ids: list[UUID]
+    skipped_document_ids: list[UUID]
+    dense: list[RetrievalResult]
+    bm25: list[RetrievalResult]
+    results: list[RetrievalResult]
+    timings_ms: dict[str, float]
+    config: dict[str, str | int | float]
 
 
 class SearchResponse(BaseModel):

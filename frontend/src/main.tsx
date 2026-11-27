@@ -3,9 +3,10 @@ import { request, type Doc, type Collection, type Source } from './api';
 import { Assistant } from './Assistant';
 import { CollectionDialog } from './CollectionDialog';
 import { Reader } from './Reader';
+import { InspectorPanel } from './InspectorPanel';
 import { SearchPanel } from './SearchPanel';
-type Tab = 'documents' | 'search' | 'ask';
-const tabs: [Tab, string][] = [['documents', '文档'], ['search', '搜索'], ['ask', '问答']];
+type Tab = 'documents' | 'search' | 'ask' | 'inspect';
+const tabs: [Tab, string][] = [['documents', '文档'], ['search', '搜索'], ['ask', '问答'], ['inspect', '检索调试']];
 const statusNames: Record<string, string> = { uploaded: '待处理', queued: '排队中', parsing: '解析中', indexing: '建立索引', indexed: '可提问', failed: '处理失败', deleting: '删除中' };
 const busy = (status: string) => ['queued', 'parsing', 'indexing', 'deleting'].includes(status);
 export function App() {
@@ -131,6 +132,7 @@ export function App() {
       {!current && <div className="library-tabs" role="tablist" aria-label="图书馆视图">{tabs.map(([id, label]) => <button key={id} role="tab" id={`tab-${id}`} aria-selected={tab === id} className={`btn ${tab === id ? 'is-active' : ''}`} onClick={() => setTab(id)}>{label}</button>)}<span className="tab-scope">范围：{scopeName}</span></div>}
       {current ? <Reader key={current.document_id} doc={current} initialPage={openPage}/>
       : tab === 'search' ? <SearchPanel key={collectionId} scope={scope} scopeName={scopeName} onOpen={(s, p) => void openSource(s, p)}/>
+      : tab === 'inspect' ? <InspectorPanel key={collectionId} scope={scope} scopeName={scopeName} onOpen={(s, p) => void openSource(s, p)}/>
       : tab === 'ask' ? <div className="library-assistant"><Assistant key={collectionId} scope={scope}
           title={`// 向${activeCollection ? '分组' : '图书馆'}提问`} subtitle={`跨「${scopeName}」中的文档检索并回答。`}
           disabledNotice={!loading && total === 0 ? '范围内还没有文档，请先上传。' : undefined}
