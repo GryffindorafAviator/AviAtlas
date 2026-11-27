@@ -30,24 +30,26 @@ class DoclingParser(DocumentParser):
         result = self._converter.convert(str(file_path))
         doc = result.document
 
-        # 1. Extract Metadata (Safely)
-        metadata = DocumentMetadata(
-            title=file_path.stem,
-            authors=[],
-            page_count=len(doc.pages),
-            language=None,
-        )
-
-        # 2. Extract Blocks
         blocks = []
         order_counter = 0
+        title = None
 
         for item, _level in doc.iterate_items():
             block = self._create_block(item, doc, order_counter)
             if block:
                 blocks.append(block)
                 order_counter += 1
+                # Uploaded files are stored under generated names, so the file
+                # stem is never a title; use the title Docling detects, if any.
+                if title is None and item.label == DocItemLabel.TITLE and block.content:
+                    title = " ".join(block.content.split())[:300]
 
+        metadata = DocumentMetadata(
+            title=title,
+            authors=[],
+            page_count=len(doc.pages) or None,
+            language=None,
+        )
         return ParsedDocument(metadata=metadata, blocks=blocks)
 
     def _create_block(self, item: Any, doc: Any, order: int) -> Block | None:

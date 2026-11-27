@@ -244,3 +244,18 @@ def test_processing_blocks_delete_and_duplicate_submission(tmp_path, monkeypatch
         worker.join(timeout=15)
     assert not worker.is_alive()
     assert docs.get(record.id).status == 'indexed'
+
+
+def test_repair_backfills_hashes_and_clears_storage_name_titles(tmp_path, monkeypatch):
+    from aviatlas.services.errors import DuplicateDocument
+    docs, _, _ = setup_services(tmp_path, monkeypatch)
+    record = docs.upload('first.pdf', BytesIO(b'plant evidence'))
+    legacy = docs.repository.get(record.id)
+    legacy.metadata.pop('sha256'); legacy.title = str(legacy.id)
+    docs.repository.save(legacy)
+    reopened, _, _ = setup_services(tmp_path, monkeypatch)
+    reopened.repair_records()
+    repaired = reopened.repository.get(record.id)
+    assert repaired.title is None and len(repaired.metadata['sha256']) == 64
+    with pytest.raises(DuplicateDocument):
+        reopened.upload('again.pdf', BytesIO(b'plant evidence'))

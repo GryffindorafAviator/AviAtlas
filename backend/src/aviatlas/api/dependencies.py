@@ -50,6 +50,7 @@ def _build_services() -> Services:
         SearchService(retriever, resolver),
     )
 
+    services.documents.repair_records()
     services.documents.recover_interrupted()
     services.documents.resume_deletions()
     return services

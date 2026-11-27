@@ -29,3 +29,7 @@ class DocumentBusy(ServiceError):
 
 class CollectionNotFound(ServiceError):
     pass
+
+
+class DuplicateDocument(ServiceError):
+    pass

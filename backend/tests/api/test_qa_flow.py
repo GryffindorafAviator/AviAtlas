@@ -55,8 +55,9 @@ def client(tmp_path, monkeypatch):
 
 
 
-def upload(client):
-    response = client.post('/api/v1/documents/upload', params={'auto_process': False}, files={'file': ('book.pdf', b'%PDF-fake')})
+def upload(client, content=None):
+    content = content or b'%PDF-' + uuid4().hex.encode()
+    response = client.post('/api/v1/documents/upload', params={'auto_process': False}, files={'file': ('book.pdf', content)})
     assert response.status_code == 200
     return response.json()['document_id']
 
@@ -220,7 +221,7 @@ def test_manual_process_and_duplicate_queue(client):
 
 def test_original_pdf_read_and_missing_file(client):
     from uuid import UUID
-    doc_id = upload(client)
+    doc_id = upload(client, b'%PDF-fake')
     response = client.get(f'/api/v1/documents/{doc_id}/file')
     assert response.status_code == 200
     assert response.content == b'%PDF-fake'
@@ -230,3 +231,29 @@ def test_original_pdf_read_and_missing_file(client):
     client.services.documents.get(UUID(doc_id)).filepath.unlink()
     assert client.get(f'/api/v1/documents/{doc_id}/file').status_code == 404
     assert client.get(f'/api/v1/documents/{uuid4()}/file').status_code == 404
+
+
+def test_duplicate_upload_is_rejected_and_names_the_existing_file(client):
+    first = upload(client, b'%PDF-same')
+    response = client.post('/api/v1/documents/upload', files={'file': ('copy.pdf', b'%PDF-same')})
+    assert response.status_code == 409
+    assert '"book.pdf"' in response.json()['detail']
+    assert client.get('/api/v1/documents').json()['total'] == 1
+    assert len(list(client.services.documents.upload_dir.iterdir())) == 1
+    client.delete(f'/api/v1/documents/{first}')
+    assert client.post('/api/v1/documents/upload', params={'auto_process': False},
+                       files={'file': ('copy.pdf', b'%PDF-same')}).status_code == 200
+
+
+def test_parser_uses_detected_title_not_storage_name(tmp_path):
+    from docling_core.types.doc import DocItemLabel
+    from aviatlas.parsing.docling_parser import DoclingParser
+    heading = SimpleNamespace(label=DocItemLabel.TITLE, text='Attention  Is All\nYou Need')
+    body = SimpleNamespace(label=DocItemLabel.TEXT, text='Body')
+    document = SimpleNamespace(pages={1: object()}, iterate_items=lambda: iter([(body, 0), (heading, 0)]))
+    parser = DoclingParser.__new__(DoclingParser)
+    parser._converter = SimpleNamespace(convert=lambda path: SimpleNamespace(document=document))
+    assert parser.parse(tmp_path / f'{uuid4()}.pdf').metadata.title == 'Attention Is All You Need'
+    untitled = SimpleNamespace(pages={1: object()}, iterate_items=lambda: iter([(body, 0)]))
+    parser._converter = SimpleNamespace(convert=lambda path: SimpleNamespace(document=untitled))
+    assert parser.parse(tmp_path / f'{uuid4()}.pdf').metadata.title is None

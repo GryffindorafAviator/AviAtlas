@@ -11,7 +11,7 @@ from aviatlas.api.models import CollectionInput, CollectionSummary, CollectionLi
 from aviatlas.api.models import AskRequest, ScopeInput, SearchRequest, SearchResponse, SourceAwareAnswer
 from aviatlas.services.models import ScopeRequest, Selection
 from aviatlas.services.errors import (
-    CollectionNotFound,
+    CollectionNotFound, DuplicateDocument,
     DocumentBusy, ServiceError, InvalidInput, DocumentNotFound, DocumentNotReady,
     DocumentProcessingFailed, RetrievalUnavailable, GenerationUnavailable, GenerationFailed,
 )
@@ -24,7 +24,7 @@ app = FastAPI(
 )
 
 _ERROR_STATUS = {
-    CollectionNotFound: 404, DocumentBusy: 409, InvalidInput: 400, DocumentNotFound: 404, DocumentNotReady: 400,
+    CollectionNotFound: 404, DocumentBusy: 409, DuplicateDocument: 409, InvalidInput: 400, DocumentNotFound: 404, DocumentNotReady: 400,
     DocumentProcessingFailed: 500, RetrievalUnavailable: 503,
     GenerationUnavailable: 503, GenerationFailed: 502,
 }

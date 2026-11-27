@@ -1,6 +1,6 @@
 """Document upload, parsing, chunking and indexing workflow."""
+import hashlib
 import logging
-import shutil
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,11 +9,30 @@ from threading import Lock, RLock
 from uuid import UUID
 
 from aviatlas.storage.document_registry import DocumentRecord
-from aviatlas.services.errors import InvalidInput, DocumentNotFound, DocumentProcessingFailed, DocumentBusy
+from aviatlas.services.errors import InvalidInput, DocumentNotFound, DocumentProcessingFailed, DocumentBusy, DuplicateDocument
 from aviatlas.services.models import ParseResult
 from aviatlas.services.ports import DocumentRepository, Parser, Chunker, Embedder, VectorIndex
 
 logger = logging.getLogger(__name__)
+
+_CHUNK = 1024 * 1024
+
+
+def _copy_and_hash(stream: BinaryIO, path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("wb") as buffer:
+        while block := stream.read(_CHUNK):
+            digest.update(block)
+            buffer.write(block)
+    return digest.hexdigest()
+
+
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while block := source.read(_CHUNK):
+            digest.update(block)
+    return digest.hexdigest()
 
 class DocumentService:
     def __init__(self, repository: DocumentRepository, vectors: VectorIndex,
@@ -27,6 +46,7 @@ class DocumentService:
         self.embedder = embedder
         self._locks: dict[UUID, RLock] = {}
         self._locks_guard = Lock()
+        self._upload_guard = Lock()
 
     def _lock_for(self, document_id: UUID):
         with self._locks_guard:
@@ -104,6 +124,21 @@ class DocumentService:
         finally:
             lock.release()
 
+    def repair_records(self) -> None:
+        """Backfill content hashes for deduplication and drop titles that were
+        only the generated storage name."""
+        for record in self.repository.all_records():
+            changed = False
+            if record.title == str(record.id):
+                record.title, changed = None, True
+            if "sha256" not in record.metadata and record.filepath and record.filepath.is_file():
+                try:
+                    record.metadata["sha256"], changed = _hash_file(record.filepath), True
+                except OSError:
+                    logger.exception("Could not hash document: %s", record.id)
+            if changed:
+                self.repository.save(record)
+
     def recover_interrupted(self) -> None:
         # One server process only: any in-flight records belong to the previous run.
         for record in self.repository.all_records():
@@ -129,15 +164,24 @@ class DocumentService:
         file_path = self.upload_dir.resolve() / f"{record.id}{Path(filename).suffix}"
         try:
             self.upload_dir.mkdir(parents=True, exist_ok=True)
-            with file_path.open("wb") as buffer:
-                shutil.copyfileobj(stream, buffer)
+            sha256 = _copy_and_hash(stream, file_path)
         except Exception as exc:
             record.set_status("failed")
             self.repository.save(record)
             logger.exception("Document upload failed: %s", record.id)
             raise DocumentProcessingFailed("Failed to save file. Check server logs and retry.") from exc
-        record.filepath = file_path
-        self.repository.save(record)
+        # Check and claim the hash atomically so concurrent identical uploads
+        # cannot both be kept.
+        with self._upload_guard:
+            existing = next((r for r in self.repository.all_records()
+                             if r.id != record.id and r.metadata.get("sha256") == sha256), None)
+            if existing is not None:
+                file_path.unlink(missing_ok=True)
+                self.repository.delete(record.id)
+                raise DuplicateDocument(f"This file is already in the library as \"{existing.filename}\".")
+            record.filepath = file_path
+            record.metadata["sha256"] = sha256
+            self.repository.save(record)
         return record
 
     def parse(self, document_id: UUID) -> ParseResult:

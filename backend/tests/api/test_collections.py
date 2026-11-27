@@ -38,7 +38,7 @@ def upload(client, collection=None):
     if collection:
         params['collection_id'] = collection
     response = client.post('/api/v1/documents/upload', params=params,
-                           files={'file': ('book.pdf', b'%PDF-test')})
+                           files={'file': ('book.pdf', b'%PDF-' + uuid4().hex.encode())})
     assert response.status_code == 200
     return response.json()['document_id']
 
@@ -72,7 +72,7 @@ def test_rename_restart_and_delete_preserve_files(client):
     assert reopened.get(UUID(collection)).name == 'Mechanics'
     assert reopened.collection_ids(UUID(doc_id)) == [UUID(collection)]
     assert client.delete(f'/api/v1/collections/{collection}').status_code == 204
-    assert client.get(f'/api/v1/documents/{doc_id}/file').content == b'%PDF-test'
+    assert client.get(f'/api/v1/documents/{doc_id}/file').content == path.read_bytes()
     assert path.exists()
     assert reopened.collection_ids(UUID(doc_id)) == []
     assert client.get('/api/v1/documents').json()['total'] == 1
